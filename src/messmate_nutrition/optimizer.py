@@ -107,82 +107,56 @@ SOYA_CHUNKS_LABEL = SupplementProfile(
 
 
 @dataclass(frozen=True)
-class MealRule:
-    minimum_distinct_items: int
-    maximum_distinct_items: int
-    maximum_servings_per_item: int = 2
-    maximum_total_servings: int = 4
-    minimum_calories_kcal: Decimal = Decimal("0")
-    maximum_calories_kcal: Decimal = Decimal("2500")
+class MealGuidance:
+    """Soft preferred calorie window for a meal; never a hard meal limit."""
+
+    minimum_calories_kcal: Decimal
+    maximum_calories_kcal: Decimal
 
     def __post_init__(self) -> None:
-        if self.minimum_distinct_items < 0 or self.maximum_distinct_items < self.minimum_distinct_items:
-            raise ValueError("invalid meal distinct-item bounds")
-        if self.maximum_servings_per_item < 1:
-            raise ValueError("maximum servings per item must be positive")
-        if self.maximum_total_servings < self.minimum_distinct_items:
-            raise ValueError("maximum total servings cannot be below minimum distinct items")
         if self.minimum_calories_kcal < 0 or self.maximum_calories_kcal < self.minimum_calories_kcal:
-            raise ValueError("invalid meal calorie bounds")
+            raise ValueError("invalid preferred meal calorie window")
 
 
 @dataclass(frozen=True)
-class FoodPortionLimit:
-    """Maximum typical portions for one food over a day and within one meal."""
+class PortionGuidance:
+    """Advisory household-serving thresholds used for warnings and soft penalties."""
 
-    maximum_servings_per_day: int
-    maximum_servings_per_meal: int
-    exclusive_group: str | None = None
-    exclusive_group_maximum_servings_per_day: int | None = None
+    servings_per_meal: int = 2
+    servings_per_day: int = 4
 
     def __post_init__(self) -> None:
-        if self.maximum_servings_per_day < 1 or self.maximum_servings_per_meal < 1:
-            raise ValueError("food serving limits must be positive")
-        if self.exclusive_group is None and self.exclusive_group_maximum_servings_per_day is not None:
-            raise ValueError("group limit requires an exclusive group")
-        if self.exclusive_group_maximum_servings_per_day is not None and self.exclusive_group_maximum_servings_per_day < 1:
-            raise ValueError("exclusive group maximum must be positive")
+        if self.servings_per_meal < 1 or self.servings_per_day < 1:
+            raise ValueError("portion guidance thresholds must be positive")
 
 
-DEFAULT_MEAL_RULES: dict[str, MealRule] = {
-    "Breakfast": MealRule(1, 4, 2, 3, Decimal("350"), Decimal("650")),
-    "Lunch": MealRule(1, 5, 2, 4, Decimal("400"), Decimal("700")),
-    # Optional: every snack item on the actual snapshot falls below the safety
-    # threshold or has unknown macros, so the default policy allows no snack.
-    "Snacks": MealRule(0, 3, 2, 2, Decimal("0"), Decimal("300")),
-    "Dinner": MealRule(1, 5, 2, 4, Decimal("400"), Decimal("700")),
+DEFAULT_MEAL_GUIDANCE: dict[str, MealGuidance] = {
+    "Breakfast": MealGuidance(Decimal("350"), Decimal("650")),
+    "Lunch": MealGuidance(Decimal("400"), Decimal("700")),
+    "Snacks": MealGuidance(Decimal("0"), Decimal("300")),
+    "Dinner": MealGuidance(Decimal("400"), Decimal("700")),
 }
 
-
-# These are optimizer safety caps, independent of the nutrition catalog. Each
-# unit is the catalog's typical serving weight; for example, 1 rice serving is
-# 180 g cooked and 1 milk serving is 150 g. The milk group treats hot/cold as
-# alternatives and limits the day to one of them.
-DEFAULT_FOOD_PORTION_LIMITS: dict[str, FoodPortionLimit] = {
-    "banana": FoodPortionLimit(1, 1),
-    "masala_oats": FoodPortionLimit(1, 1),
-    "muesli": FoodPortionLimit(1, 1),
-    "sada_paratha": FoodPortionLimit(2, 2),
-    "chana_palak": FoodPortionLimit(1, 1),
-    "hot_milk": FoodPortionLimit(1, 1, "milk", 1),
-    "cold_milk": FoodPortionLimit(1, 1, "milk", 1),
-    "tea_d": FoodPortionLimit(1, 1),
-    "coffee_powder": FoodPortionLimit(1, 1),
-    "bread_butter_jam": FoodPortionLimit(1, 1),
-    "arhar_dal": FoodPortionLimit(1, 1),
-    "paneer_do_pyaza": FoodPortionLimit(1, 1),
-    "ullipai_pacchadi": FoodPortionLimit(1, 1),
-    "curd": FoodPortionLimit(1, 1),
-    "green_salad": FoodPortionLimit(1, 1),
-    "jeera_rice": FoodPortionLimit(2, 1),
-    "chapati": FoodPortionLimit(4, 2),
-    "veg_puff": FoodPortionLimit(1, 1),
-    "hot_coffee": FoodPortionLimit(1, 1),
-    "ketchup": FoodPortionLimit(1, 1),
-    "chole_masala": FoodPortionLimit(1, 1),
-    "jeera_aloo": FoodPortionLimit(1, 1),
-    "rasam": FoodPortionLimit(1, 1),
+# These are advisory thresholds, not mess rules or solver bounds. They are
+# configurable per food and only affect soft objectives and warning output.
+DEFAULT_PORTION_GUIDANCE: dict[str, PortionGuidance] = {
+    "default": PortionGuidance(2, 4),
+    "chapati": PortionGuidance(3, 6),
+    "jeera_rice": PortionGuidance(2, 4),
+    "masala_oats": PortionGuidance(2, 3),
+    "muesli": PortionGuidance(2, 3),
+    "sada_paratha": PortionGuidance(2, 4),
+    "banana": PortionGuidance(2, 3),
+    "hot_milk": PortionGuidance(2, 4),
+    "cold_milk": PortionGuidance(2, 4),
+    "arhar_dal": PortionGuidance(2, 4),
+    "chana_palak": PortionGuidance(2, 3),
+    "chole_masala": PortionGuidance(2, 3),
+    "curd": PortionGuidance(2, 4),
 }
+
+MILK_FOOD_KEYS = frozenset({"hot_milk", "cold_milk"})
+MILK_PORTION_GUIDANCE = PortionGuidance(servings_per_meal=1, servings_per_day=2)
 
 
 @dataclass(frozen=True)
@@ -227,6 +201,8 @@ class OptimizationResult:
     message: str
     meal_calories_kcal: tuple[tuple[str, Decimal], ...] = ()
     objective_values: tuple[tuple[str, Decimal], ...] = ()
+    soft_preference_deviations: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     @property
     def is_valid_target_plan(self) -> bool:
@@ -270,7 +246,8 @@ class DietOptimizer:
     Confidence policy: only known records at/above ``minimum_confidence`` are
     eligible. Foods are selected in typical-serving increments. Soya is never
     part of the menu catalog; it is available solely through its explicit
-    product-label profile and is minimized before all other soft objectives.
+    product-label profile and is minimized before other soft objectives.
+    Household-serving counts and meal calorie windows are guidance only.
     """
 
     SCALE = 100  # Decimal hundredths -> CP-SAT integers.
@@ -284,11 +261,12 @@ class DietOptimizer:
         minimum_confidence: Decimal = Decimal("0.50"),
         soya_step_grams: int = 5,
         maximum_soya_grams: int = 70,
-        meal_rules: Mapping[str, MealRule] | None = None,
-        food_portion_limits: Mapping[str, FoodPortionLimit] | None = None,
+        meal_guidance: Mapping[str, MealGuidance] | None = None,
+        portion_guidance: Mapping[str, PortionGuidance] | None = None,
+        milk_guidance: PortionGuidance = MILK_PORTION_GUIDANCE,
         plant_protein_meal: str = "Breakfast",
         soya_meal: str | None = None,
-        max_time_seconds: float = 10.0,
+        max_time_seconds: float = 60.0,
     ) -> None:
         if not Decimal("0") <= minimum_confidence <= Decimal("1"):
             raise ValueError("minimum_confidence must be in [0, 1]")
@@ -321,14 +299,15 @@ class DietOptimizer:
         self.minimum_confidence = minimum_confidence
         self.soya_step_grams = soya_step_grams
         self.maximum_soya_grams = maximum_soya_grams
-        self.meal_rules = dict(meal_rules or DEFAULT_MEAL_RULES)
-        self.food_portion_limits = {**DEFAULT_FOOD_PORTION_LIMITS, **(food_portion_limits or {})}
-        if plant_protein_meal not in self.meal_rules:
-            raise ValueError("plant protein meal must exist in meal rules")
+        self.meal_guidance = {**DEFAULT_MEAL_GUIDANCE, **(meal_guidance or {})}
+        self.portion_guidance = {**DEFAULT_PORTION_GUIDANCE, **(portion_guidance or {})}
+        self.milk_guidance = milk_guidance
+        if plant_protein_meal not in self.meal_guidance:
+            raise ValueError("plant protein meal must exist in meal guidance")
         if soya_meal is None:
-            soya_meal = next((meal for meal in ("Snacks", "Lunch", plant_protein_meal) if meal in self.meal_rules), plant_protein_meal)
-        if self.soya is not None and soya_meal not in self.meal_rules:
-            raise ValueError("soya meal must exist in meal rules")
+            soya_meal = next((meal for meal in ("Snacks", "Lunch", plant_protein_meal) if meal in self.meal_guidance), plant_protein_meal)
+        if self.soya is not None and soya_meal not in self.meal_guidance:
+            raise ValueError("soya meal must exist in meal guidance")
         self.plant_protein_meal = plant_protein_meal
         self.soya_meal = soya_meal
         self.max_time_seconds = max_time_seconds
@@ -347,7 +326,9 @@ class DietOptimizer:
         missing: list[str] = []
         for item in menu:
             food = item.food
-            if food.nutrition_per_100g is None:
+            if item.meal not in self.meal_guidance:
+                excluded.append((item.meal, food.display_name, "Meal section has no configured guidance."))
+            elif food.nutrition_per_100g is None:
                 reason = food.notes or "Nutrition unavailable; cannot optimize this item."
                 excluded.append((item.meal, food.display_name, reason))
                 missing.append(f"{item.meal}: {food.display_name}")
@@ -361,101 +342,113 @@ class DietOptimizer:
 
         hard = self._run(eligible, require_protein=True, enforce_minimum_calories=True)
         if hard is not None:
-            portions, soya_g, totals, objective_values, records, meal_calories = hard
-            self._validate(portions, totals, soya_g, records=records, meal_calories=meal_calories,
+            portions, soya_g, totals, objective_values, records, meal_calories, optimal = hard
+            self._validate(portions, totals, soya_g, records=records,
                            require_protein=True, enforce_minimum_calories=True)
+            deviations, warnings = self._result_notes(
+                portions, totals, meal_calories, excluded, missing,
+                status=PlanStatus.FEASIBLE, optimal=optimal,
+            )
             return OptimizationResult(
-                PlanStatus.FEASIBLE, portions, totals, 1, soya_g, Decimal("0"),
-                tuple(excluded), tuple(sorted(set(missing))),
-                self._complete_message(totals, soya_g), meal_calories, objective_values,
+                status=PlanStatus.FEASIBLE, portions=portions, totals=totals,
+                fixed_plant_protein_scoops=1, soya_dry_grams=soya_g,
+                protein_shortfall_g=Decimal("0"), excluded_items=tuple(excluded),
+                missing_nutrition=tuple(sorted(set(missing))),
+                message=self._complete_message(totals, soya_g),
+                meal_calories_kcal=meal_calories, objective_values=objective_values,
+                soft_preference_deviations=deviations, warnings=warnings,
             )
 
-        # Diagnostic fallback preserves the hard calorie ceiling and maximizes
-        # achievable protein; it never labels a sub-target result as a valid plan.
+        # The hard model is infeasible. Produce a clearly labeled diagnostic
+        # that maximizes achievable protein while preserving the calorie ceiling.
         fallback = self._run(eligible, require_protein=False, enforce_minimum_calories=True)
         if fallback is None:
             fallback = self._run(eligible, require_protein=False, enforce_minimum_calories=False)
         if fallback is None:
-            return OptimizationResult(
-                PlanStatus.INFEASIBLE, (), MacroTotals(self.plant_protein.calories_kcal, self.plant_protein.protein_g,
-                    self.plant_protein.carbohydrates_g, self.plant_protein.fat_g),
-                1, Decimal("0"), self.profile.targets.minimum_protein_g,
-                tuple(excluded), tuple(sorted(set(missing))),
-                "No menu combination satisfies the calorie ceiling and meal rules, even before requiring the protein minimum.",
+            totals = MacroTotals(
+                self.plant_protein.calories_kcal, self.plant_protein.protein_g,
+                self.plant_protein.carbohydrates_g, self.plant_protein.fat_g,
             )
-        portions, soya_g, totals, objective_values, records, meal_calories = fallback
+            message = "No menu combination fits the hard calorie ceiling, even before requiring the protein minimum."
+            deviations, warnings = self._result_notes(
+                (), totals, self._recalculate_meal_calories((), Decimal("0"), {}),
+                excluded, missing, status=PlanStatus.INFEASIBLE, optimal=True,
+            )
+            return OptimizationResult(
+                status=PlanStatus.INFEASIBLE, portions=(), totals=totals,
+                fixed_plant_protein_scoops=1, soya_dry_grams=Decimal("0"),
+                protein_shortfall_g=self.profile.targets.minimum_protein_g,
+                excluded_items=tuple(excluded), missing_nutrition=tuple(sorted(set(missing))),
+                message=message, meal_calories_kcal=tuple(),
+                soft_preference_deviations=deviations, warnings=warnings,
+            )
+
+        portions, soya_g, totals, objective_values, records, meal_calories, optimal = fallback
         shortfall = max(Decimal("0"), self.profile.targets.minimum_protein_g - totals.protein_g)
-        self._validate(portions, totals, soya_g, records=records, meal_calories=meal_calories, require_protein=False,
-                       enforce_minimum_calories=totals.calories_kcal >= self.profile.targets.minimum_calories_kcal)
-        if totals.calories_kcal < self.profile.targets.minimum_calories_kcal:
-            fallback_status = PlanStatus.INFEASIBLE
-            fallback_message = (f"No plan met the {self.profile.targets.minimum_calories_kcal} kcal minimum. "
-                                f"Best diagnostic plan provides {totals.calories_kcal} kcal and {totals.protein_g} g protein.")
+        calories_valid = totals.calories_kcal >= self.profile.targets.minimum_calories_kcal
+        self._validate(portions, totals, soya_g, records=records, require_protein=False,
+                       enforce_minimum_calories=calories_valid)
+        if not calories_valid:
+            status = PlanStatus.INFEASIBLE
+            message = (f"No plan met the {self.profile.targets.minimum_calories_kcal} kcal minimum. "
+                       f"Best diagnostic plan provides {totals.calories_kcal} kcal and {totals.protein_g} g protein.")
         elif shortfall > 0:
-            fallback_status = PlanStatus.PROTEIN_SHORTFALL
-            fallback_message = (f"No plan met {self.profile.targets.minimum_protein_g} g protein within the calorie limits. "
-                                f"Best diagnostic plan provides {totals.protein_g} g protein "
-                                f"({shortfall} g shortfall) at {totals.calories_kcal} kcal.")
+            status = PlanStatus.PROTEIN_SHORTFALL
+            message = (f"No plan met {self.profile.targets.minimum_protein_g} g protein within the calorie limits. "
+                       f"Best diagnostic plan provides {totals.protein_g} g protein "
+                       f"({shortfall} g shortfall) at {totals.calories_kcal} kcal.")
         else:
-            fallback_status = PlanStatus.FEASIBLE
-            fallback_message = self._complete_message(totals, soya_g)
+            status = PlanStatus.FEASIBLE
+            message = self._complete_message(totals, soya_g)
+        deviations, warnings = self._result_notes(
+            portions, totals, meal_calories, excluded, missing,
+            status=status, optimal=optimal,
+        )
         return OptimizationResult(
-            fallback_status, portions, totals, 1, soya_g, shortfall,
-            tuple(excluded), tuple(sorted(set(missing))),
-            fallback_message, meal_calories, objective_values,
+            status=status, portions=portions, totals=totals,
+            fixed_plant_protein_scoops=1, soya_dry_grams=soya_g,
+            protein_shortfall_g=shortfall, excluded_items=tuple(excluded),
+            missing_nutrition=tuple(sorted(set(missing))), message=message,
+            meal_calories_kcal=meal_calories, objective_values=objective_values,
+            soft_preference_deviations=deviations, warnings=warnings,
         )
 
     def _run(self, eligible: Sequence[MenuItem], *, require_protein: bool,
-             enforce_minimum_calories: bool) -> tuple[tuple[SelectedPortion, ...], Decimal, MacroTotals, tuple[tuple[str, Decimal], ...], Mapping[str, FoodRecord], tuple[tuple[str, Decimal], ...]] | None:
+             enforce_minimum_calories: bool) -> tuple[tuple[SelectedPortion, ...], Decimal, MacroTotals,
+             tuple[tuple[str, Decimal], ...], Mapping[str, FoodRecord],
+             tuple[tuple[str, Decimal], ...], bool] | None:
         targets = self.profile.targets
         model = cp_model.CpModel()
         serving_vars: dict[str, cp_model.IntVar] = {}
         selected_vars: dict[str, cp_model.IntVar] = {}
         item_map: dict[str, MenuItem] = {}
-        meal_vars: dict[str, list[cp_model.IntVar]] = {meal: [] for meal in self.meal_rules}
-        meal_portions: dict[str, list[cp_model.IntVar]] = {meal: [] for meal in self.meal_rules}
         daily_food_portions: dict[str, list[cp_model.IntVar]] = {}
         meal_food_portions: dict[tuple[str, str], list[cp_model.IntVar]] = {}
-        group_portions: dict[str, list[cp_model.IntVar]] = {}
-        group_caps: dict[str, int] = {}
-        meal_food_calories: dict[str, list[object]] = {meal: [] for meal in self.meal_rules}
+        meal_food_calories: dict[str, list[object]] = {meal: [] for meal in self.meal_guidance}
+        meal_kcal_domain_upper: dict[str, int] = {meal: 0 for meal in self.meal_guidance}
+        daily_food_selected: dict[str, list[cp_model.IntVar]] = {}
+        food_serving_domain: dict[str, int] = {}
+
+        max_kcal_units = self._units(targets.maximum_calories_kcal)
         for index, item in enumerate(eligible):
-            if item.meal not in self.meal_rules:
-                continue
             key = f"{item.key}:{index}"
-            rule = self.meal_rules[item.meal]
-            limit = self.food_portion_limits.get(item.food.key, FoodPortionLimit(2, 1))
-            item_max = min(rule.maximum_servings_per_item, limit.maximum_servings_per_meal,
-                           limit.maximum_servings_per_day)
+            food = item.food
+            assert food.nutrition_per_100g is not None and food.serving is not None
+            kcal_per_serving_units = self._units(
+                food.nutrition_per_100g.calories_kcal * food.serving.grams / Decimal("100")
+            )
+            item_max = self._safe_serving_domain(food)
+            food_serving_domain[food.key] = food_serving_domain.get(food.key, 0) + item_max
             portion = model.new_int_var(0, item_max, f"servings_{index}")
             active = model.new_bool_var(f"selected_{index}")
             model.add(portion >= active)
             model.add(portion <= item_max * active)
             serving_vars[key], selected_vars[key], item_map[key] = portion, active, item
-            meal_vars[item.meal].append(active)
-            meal_portions[item.meal].append(portion)
-            daily_food_portions.setdefault(item.food.key, []).append(portion)
-            meal_food_portions.setdefault((item.food.key, item.meal), []).append(portion)
-            if limit.exclusive_group is not None:
-                group_portions.setdefault(limit.exclusive_group, []).append(portion)
-                cap = limit.exclusive_group_maximum_servings_per_day
-                if cap is not None:
-                    existing = group_caps.setdefault(limit.exclusive_group, cap)
-                    if existing != cap:
-                        raise ValueError(f"inconsistent maximum for food group {limit.exclusive_group!r}")
-            assert item.food.nutrition_per_100g is not None and item.food.serving is not None
-            kcal_per_serving = item.food.nutrition_per_100g.calories_kcal * item.food.serving.grams / Decimal("100")
-            meal_food_calories[item.meal].append(self._units(kcal_per_serving) * portion)
-
-        for food_key, portions_for_food in daily_food_portions.items():
-            limit = self.food_portion_limits.get(food_key, FoodPortionLimit(2, 1))
-            model.add(sum(portions_for_food) <= limit.maximum_servings_per_day)
-        for (food_key, _meal), portions_for_food_meal in meal_food_portions.items():
-            limit = self.food_portion_limits.get(food_key, FoodPortionLimit(2, 1))
-            model.add(sum(portions_for_food_meal) <= limit.maximum_servings_per_meal)
-        for group, portions_in_group in group_portions.items():
-            if group in group_caps:
-                model.add(sum(portions_in_group) <= group_caps[group])
+            daily_food_portions.setdefault(food.key, []).append(portion)
+            meal_food_portions.setdefault((food.key, item.meal), []).append(portion)
+            daily_food_selected.setdefault(food.key, []).append(active)
+            meal_food_calories[item.meal].append(kcal_per_serving_units * portion)
+            meal_kcal_domain_upper[item.meal] += kcal_per_serving_units * item_max
 
         soya_units: cp_model.IntVar | None = None
         soya_cap = self.maximum_soya_grams // self.soya_step_grams
@@ -463,23 +456,33 @@ class DietOptimizer:
             soya_units = model.new_int_var(0, soya_cap, "soya_dry_portion_steps")
 
         meal_kcal_expressions: dict[str, object] = {}
-        for meal in self.meal_rules:
-            supplement_calories = 0
+        for meal in self.meal_guidance:
+            supplements = 0
             if meal == self.plant_protein_meal:
-                supplement_calories += self._units(self.plant_protein.calories_kcal)
+                supplements += self._units(self.plant_protein.calories_kcal)
+                meal_kcal_domain_upper[meal] += self._units(self.plant_protein.calories_kcal)
             if meal == self.soya_meal and soya_units is not None and self.soya is not None:
                 per_step = self.soya.calories_kcal * Decimal(self.soya_step_grams) / Decimal("100")
                 meal_food_calories[meal].append(self._units(per_step) * soya_units)
-            expression = sum(meal_food_calories[meal]) + supplement_calories
-            meal_kcal_expressions[meal] = expression
+                meal_kcal_domain_upper[meal] += self._units(per_step) * soya_cap
+            meal_kcal_expressions[meal] = sum(meal_food_calories[meal]) + supplements
 
-        for meal, rule in self.meal_rules.items():
-            vars_for_meal = meal_vars[meal]
-            model.add(sum(vars_for_meal) >= rule.minimum_distinct_items)
-            model.add(sum(vars_for_meal) <= rule.maximum_distinct_items)
-            model.add(sum(meal_portions[meal]) <= rule.maximum_total_servings)
-            model.add(meal_kcal_expressions[meal] >= self._units(rule.minimum_calories_kcal))
-            model.add(meal_kcal_expressions[meal] <= self._units(rule.maximum_calories_kcal))
+        meal_deviations: list[cp_model.IntVar] = []
+        for meal, guidance in self.meal_guidance.items():
+            expression = meal_kcal_expressions[meal]
+            minimum_units = self._units(guidance.minimum_calories_kcal)
+            maximum_units = self._units(guidance.maximum_calories_kcal)
+            minimum_possible = (
+                self._units(self.plant_protein.calories_kcal)
+                if meal == self.plant_protein_meal else 0
+            )
+            below_bound = max(0, minimum_units - minimum_possible)
+            above_bound = max(0, meal_kcal_domain_upper[meal] - maximum_units)
+            below = model.new_int_var(0, below_bound, f"{meal.lower()}_below_window")
+            above = model.new_int_var(0, above_bound, f"{meal.lower()}_above_window")
+            model.add(below >= minimum_units - expression)
+            model.add(above >= expression - maximum_units)
+            meal_deviations.extend((below, above))
 
         def macro_expr(field_name: str):
             terms = []
@@ -488,8 +491,8 @@ class DietOptimizer:
                 assert food.nutrition_per_100g is not None and food.serving is not None
                 per_portion = getattr(food.nutrition_per_100g, field_name) * food.serving.grams / Decimal("100")
                 terms.append(self._units(per_portion) * var)
-            plant_value = getattr(self.plant_protein, field_name)
-            fixed = self._units(plant_value) if plant_value is not None else 0
+            fixed_value = getattr(self.plant_protein, field_name)
+            fixed = self._units(fixed_value) if fixed_value is not None else 0
             if soya_units is not None and self.soya is not None:
                 soya_value = getattr(self.soya, field_name)
                 per_step = soya_value * Decimal(self.soya_step_grams) / Decimal("100") if soya_value is not None else Decimal("0")
@@ -502,66 +505,178 @@ class DietOptimizer:
         carbs_known = self.plant_protein.carbohydrates_g is not None and (self.soya is None or self.soya.carbohydrates_g is not None)
         fat = macro_expr("fat_g") if fat_known else None
         carbs = macro_expr("carbohydrates_g") if carbs_known else None
-        model.add(kcal <= self._units(targets.maximum_calories_kcal))
+        model.add(kcal <= max_kcal_units)
         if enforce_minimum_calories:
             model.add(kcal >= self._units(targets.minimum_calories_kcal))
         if require_protein:
             model.add(protein >= self._units(targets.minimum_protein_g))
 
+        # Soft portion guidance discourages high reliance on one dish, but never
+        # makes a serving quantity unavailable to the solver.
+        portion_excess: list[cp_model.IntVar] = []
+        for food_key, vars_for_food in daily_food_portions.items():
+            guidance = self._portion_guidance(food_key)
+            # Keep advisory excess variables genuinely soft. Derive their finite
+            # upper bounds from the already calorie-derived serving domains.
+            max_possible = food_serving_domain[food_key]
+            excess = model.new_int_var(0, max(0, max_possible), f"{food_key}_daily_guidance_excess")
+            model.add(excess >= sum(vars_for_food) - guidance.servings_per_day)
+            portion_excess.append(excess)
+        for (food_key, meal), vars_for_meal in meal_food_portions.items():
+            guidance = self._portion_guidance(food_key)
+            max_possible = sum(
+                self._safe_serving_domain(item_map[key].food)
+                for key, var in serving_vars.items()
+                if item_map[key].food.key == food_key and item_map[key].meal == meal
+            )
+            excess = model.new_int_var(0, max(0, max_possible), f"{meal.lower()}_{food_key}_guidance_excess")
+            model.add(excess >= sum(vars_for_meal) - guidance.servings_per_meal)
+            portion_excess.append(excess)
+
+        # Hot and cold milk are two menu names for the same beverage. Count
+        # their portions together for advice so changing the label does not
+        # evade the practical serving guidance.
+        for meal in self.meal_guidance:
+            milk_vars = [
+                var for (food_key, item_meal), vars_for_meal in meal_food_portions.items()
+                if food_key in MILK_FOOD_KEYS and item_meal == meal
+                for var in vars_for_meal
+            ]
+            if milk_vars:
+                max_possible = sum(
+                    self._safe_serving_domain(item_map[key].food)
+                    for key in serving_vars
+                    if item_map[key].food.key in MILK_FOOD_KEYS and item_map[key].meal == meal
+                )
+                excess = model.new_int_var(0, max_possible, f"{meal.lower()}_milk_group_guidance_excess")
+                model.add(excess >= sum(milk_vars) - self.milk_guidance.servings_per_meal)
+                portion_excess.extend((excess, excess, excess))
+        milk_vars_daily = [
+            var for (food_key, _), vars_for_meal in meal_food_portions.items()
+            if food_key in MILK_FOOD_KEYS
+            for var in vars_for_meal
+        ]
+        if milk_vars_daily:
+            max_possible = sum(
+                self._safe_serving_domain(item_map[key].food)
+                for key in serving_vars if item_map[key].food.key in MILK_FOOD_KEYS
+            )
+            excess = model.new_int_var(0, max_possible, "daily_milk_group_guidance_excess")
+            model.add(excess >= sum(milk_vars_daily) - self.milk_guidance.servings_per_day)
+            portion_excess.extend((excess, excess, excess))
+
+        distinct_food_vars: list[cp_model.IntVar] = []
+        for food_key, flags in daily_food_selected.items():
+            is_used = model.new_bool_var(f"daily_food_selected_{food_key}")
+            model.add(sum(flags) >= is_used)
+            model.add(sum(flags) <= len(flags) * is_used)
+            distinct_food_vars.append(is_used)
+
         stages: list[tuple[str, object, str]] = []
         if require_protein and soya_units is not None:
             stages.append(("soya_minimization", soya_units, "min"))
         if require_protein:
-            kcal_deviation = model.new_int_var(0, self._units(targets.maximum_calories_kcal), "preferred_calorie_deviation")
+            # Prioritize reasonable portions and meal balance before soft
+            # daily macro preferences. The 1900 kcal / 55 g fat aims can yield
+            # slightly when that produces a substantially more practical plan.
+            stages.extend((
+                ("portion_guidance", sum(portion_excess), "min"),
+                ("meal_distribution", sum(meal_deviations), "min"),
+            ))
+            kcal_deviation = model.new_int_var(0, max_kcal_units, "preferred_calorie_deviation")
             model.add_abs_equality(kcal_deviation, kcal - self._units(targets.preferred_calories_kcal))
             stages.append(("calorie_target_deviation", kcal_deviation, "min"))
+            stages.extend((
+                ("food_variety", sum(distinct_food_vars), "max"),
+            ))
             if fat is not None:
-                fat_deviation = model.new_int_var(0, self._units(targets.maximum_calories_kcal), "preferred_fat_deviation")
+                fat_deviation = model.new_int_var(0, max_kcal_units, "preferred_fat_deviation")
                 model.add_abs_equality(fat_deviation, fat - self._units(targets.preferred_fat_g))
                 stages.append(("fat_target_deviation", fat_deviation, "min"))
-            stretch = model.new_int_var(0, self._units(targets.stretch_protein_g), "protein_up_to_stretch")
+            stretch = model.new_int_var(0, self._units(targets.stretch_protein_g), "optional_protein_stretch")
             model.add_min_equality(stretch, [protein, self._units(targets.stretch_protein_g)])
             stages.append(("optional_protein_stretch", stretch, "max"))
-            # After calorie/fat/protein priorities, carbohydrates fill the
-            # remaining budget where complete supplement labels permit it.
             if carbs is not None:
                 stages.append(("remaining_carbohydrates", carbs, "max"))
         else:
             stages.append(("achievable_protein", protein, "max"))
             if soya_units is not None:
                 stages.append(("minimum_soya_at_best_protein", soya_units, "min"))
-            kcal_deviation = model.new_int_var(0, self._units(targets.maximum_calories_kcal), "preferred_calorie_deviation")
+            stages.extend((
+                ("portion_guidance", sum(portion_excess), "min"),
+                ("meal_distribution", sum(meal_deviations), "min"),
+            ))
+            kcal_deviation = model.new_int_var(0, max_kcal_units, "preferred_calorie_deviation")
             model.add_abs_equality(kcal_deviation, kcal - self._units(targets.preferred_calories_kcal))
             stages.append(("calorie_target_deviation", kcal_deviation, "min"))
             if fat is not None:
-                fat_deviation = model.new_int_var(0, self._units(targets.maximum_calories_kcal), "preferred_fat_deviation")
+                fat_deviation = model.new_int_var(0, max_kcal_units, "preferred_fat_deviation")
                 model.add_abs_equality(fat_deviation, fat - self._units(targets.preferred_fat_g))
                 stages.append(("fat_target_deviation", fat_deviation, "min"))
+            stages.append(("food_variety", sum(distinct_food_vars), "max"))
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.max_time_seconds
         solver.parameters.num_search_workers = 1
         solver.parameters.random_seed = 0
         stage_values: list[tuple[str, Decimal]] = []
-        for name, expression, direction in stages:
-            if direction == "min":
-                model.minimize(expression)
-            else:
-                model.maximize(expression)
-            status = solver.solve(model)
-            if status != cp_model.OPTIMAL:
-                return None
-            value = solver.value(expression)
-            stage_values.append((name, self._decimal(value)))
-            if direction == "min":
-                model.add(expression == value)
-            else:
-                model.add(expression == value)
-
-        # Solve one final time with all lexicographic objective optima fixed.
+        all_optimal = True
+        # Find a hard-valid starting point before optimizing preferences. With
+        # wide calorie-derived domains this avoids mistaking a time-limited
+        # preference search for nutritional infeasibility.
         status = solver.solve(model)
-        if status != cp_model.OPTIMAL:
+        if status == cp_model.INFEASIBLE:
             return None
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            raise OptimizationError(
+                f"CP-SAT could not find a hard-constraint-feasible starting point (status={solver.status_name(status)})."
+            )
+        decision_vars = list(serving_vars.values()) + list(selected_vars.values())
+        if soya_units is not None:
+            decision_vars.append(soya_units)
+        for variable in decision_vars:
+            model.add_hint(variable, solver.value(variable))
+        for name, expression, direction in stages:
+            model.minimize(expression) if direction == "min" else model.maximize(expression)
+            status = solver.solve(model)
+            if status == cp_model.INFEASIBLE:
+                return None
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                # A prior hint/optimum supplies a feasible plan. Stop improving
+                # soft objectives and retain a freshly validated incumbent.
+                model.clear_objective()
+                status = solver.solve(model)
+                if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    raise OptimizationError(
+                        f"CP-SAT could not restore a hard-valid incumbent after preference search (status={solver.status_name(status)})."
+                    )
+                all_optimal = False
+                break
+            if status != cp_model.OPTIMAL:
+                all_optimal = False
+            value = solver.value(expression)
+            if name == "soya_minimization":
+                display_value = Decimal(value * self.soya_step_grams)
+            elif name in {"portion_guidance", "food_variety"}:
+                display_value = Decimal(value)
+            else:
+                display_value = self._decimal(value)
+            stage_values.append((name, display_value))
+            model.add(expression == value)
+
+        status = solver.solve(model)
+        if status == cp_model.INFEASIBLE:
+            return None
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            model.clear_objective()
+            status = solver.solve(model)
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                raise OptimizationError(
+                    f"CP-SAT could not finalize a hard-valid result before the search limit (status={solver.status_name(status)})."
+                )
+            all_optimal = False
+        if status != cp_model.OPTIMAL:
+            all_optimal = False
         portions: list[SelectedPortion] = []
         for key, var in serving_vars.items():
             count = solver.value(var)
@@ -576,11 +691,106 @@ class DietOptimizer:
         records = {item.food.key: item.food for item in item_map.values()}
         totals = self._recalculate(portions, soya_grams, records)
         meal_calories = self._recalculate_meal_calories(portions, soya_grams, records)
-        return tuple(portions), soya_grams, totals, tuple(stage_values), records, meal_calories
+        return tuple(portions), soya_grams, totals, tuple(stage_values), records, meal_calories, all_optimal
+
+    def _safe_serving_domain(self, food: FoodRecord) -> int:
+        """Return a CP-SAT domain bound implied only by the daily kcal ceiling."""
+        assert food.nutrition_per_100g is not None and food.serving is not None
+        per_serving = food.nutrition_per_100g.calories_kcal * food.serving.grams / Decimal("100")
+        per_serving_units = self._units(per_serving)
+        if per_serving <= 0 or per_serving_units <= 0:
+            raise OptimizationError(
+                f"Cannot derive a safe calorie-based solver domain for {food.display_name}: "
+                "per-serving calories must be positive at solver precision."
+            )
+        # This is not a mess portion cap: any plan above the bound would exceed
+        # the hard daily calorie ceiling even if this were the only selected food.
+        return self._units(self.profile.targets.maximum_calories_kcal) // per_serving_units
+
+    def _domain_upper(self, variable: cp_model.IntVar) -> int:
+        return variable.proto.domain[-1]
+
+    def _portion_guidance(self, food_key: str) -> PortionGuidance:
+        return self.portion_guidance.get(food_key, self.portion_guidance["default"])
+
+    def _result_notes(self, portions, totals, meal_calories, excluded, missing, *, status, optimal):
+        targets = self.profile.targets
+        deviations: list[str] = []
+        warnings: list[str] = []
+        calorie_delta = totals.calories_kcal - targets.preferred_calories_kcal
+        if calorie_delta:
+            direction = "above" if calorie_delta > 0 else "below"
+            deviations.append(f"Daily calories are {abs(calorie_delta)} kcal {direction} the {targets.preferred_calories_kcal} kcal preference.")
+        if totals.fat_g is not None:
+            fat_delta = totals.fat_g - targets.preferred_fat_g
+            if fat_delta:
+                direction = "above" if fat_delta > 0 else "below"
+                deviations.append(f"Fat is {abs(fat_delta)} g {direction} the {targets.preferred_fat_g} g preference.")
+        if totals.protein_g < targets.stretch_protein_g:
+            deviations.append(f"Optional protein stretch is {targets.stretch_protein_g - totals.protein_g} g short; this is not a hard requirement.")
+        meal_values = dict(meal_calories)
+        for meal, guidance in self.meal_guidance.items():
+            calories = meal_values.get(meal, Decimal("0"))
+            if calories < guidance.minimum_calories_kcal:
+                deviations.append(f"{meal} is {guidance.minimum_calories_kcal - calories} kcal below its soft meal window.")
+                warnings.append(f"{meal} is below its soft preferred calorie window ({guidance.minimum_calories_kcal}–{guidance.maximum_calories_kcal} kcal).")
+            elif calories > guidance.maximum_calories_kcal:
+                deviations.append(f"{meal} is {calories - guidance.maximum_calories_kcal} kcal above its soft meal window.")
+                warnings.append(f"{meal} is above its soft preferred calorie window ({guidance.minimum_calories_kcal}–{guidance.maximum_calories_kcal} kcal).")
+
+        daily_counts: dict[str, int] = {}
+        meal_counts: dict[tuple[str, str], int] = {}
+        names: dict[str, str] = {}
+        for portion in portions:
+            daily_counts[portion.food_key] = daily_counts.get(portion.food_key, 0) + portion.servings
+            meal_counts[(portion.food_key, portion.meal)] = meal_counts.get((portion.food_key, portion.meal), 0) + portion.servings
+            names[portion.food_key] = portion.food_name
+        for food_key, count in sorted(daily_counts.items()):
+            guidance = self._portion_guidance(food_key)
+            if count > guidance.servings_per_day:
+                warnings.append(
+                    f"Large-portion guidance: {names[food_key]} is {count} standard servings/day "
+                    f"(advisory guide {guidance.servings_per_day}; no hard cap applied)."
+                )
+        for (food_key, meal), count in sorted(meal_counts.items()):
+            guidance = self._portion_guidance(food_key)
+            if count > guidance.servings_per_meal:
+                warnings.append(
+                    f"Large-portion guidance: {names[food_key]} is {count} standard servings in {meal} "
+                    f"(advisory guide {guidance.servings_per_meal}; no hard cap applied)."
+                )
+        milk_daily = sum(count for food_key, count in daily_counts.items() if food_key in MILK_FOOD_KEYS)
+        if milk_daily > self.milk_guidance.servings_per_day:
+            warnings.append(
+                f"Large-portion guidance: milk drinks total {milk_daily} cups/day "
+                f"(advisory combined guide {self.milk_guidance.servings_per_day}; no hard cap applied)."
+            )
+        for meal in self.meal_guidance:
+            milk_count = sum(count for (food_key, m), count in meal_counts.items()
+                             if food_key in MILK_FOOD_KEYS and m == meal)
+            if milk_count > self.milk_guidance.servings_per_meal:
+                warnings.append(
+                    f"Large-portion guidance: milk drinks total {milk_count} cups in {meal} "
+                    f"(advisory combined guide {self.milk_guidance.servings_per_meal}; no hard cap applied)."
+                )
+        if len(daily_counts) < 2 and portions:
+            warnings.append("Food-variety guidance: fewer than two distinct mess foods were selected.")
+        if missing:
+            warnings.append(f"{len(set(missing))} menu item(s) have unavailable nutrition and were excluded.")
+        low_confidence = [x for x in excluded if "below safety threshold" in x[2]]
+        if low_confidence:
+            warnings.append(f"{len(low_confidence)} menu item(s) were excluded below the {self.minimum_confidence} confidence threshold.")
+        if status is PlanStatus.PROTEIN_SHORTFALL:
+            warnings.append(f"Protein minimum missed by {self.profile.targets.minimum_protein_g - totals.protein_g} g; this result is diagnostic only.")
+        elif status is PlanStatus.INFEASIBLE:
+            warnings.append("No valid plan satisfies all hard daily calorie and protein constraints.")
+        if not optimal:
+            warnings.append("CP-SAT returned a hard-constraint-valid incumbent before proving all soft objectives optimal.")
+        return tuple(deviations), tuple(warnings)
 
     def _recalculate_meal_calories(self, portions: Sequence[SelectedPortion], soya_grams: Decimal,
                                    records: Mapping[str, FoodRecord]) -> tuple[tuple[str, Decimal], ...]:
-        totals = {meal: Decimal("0") for meal in self.meal_rules}
+        totals = {meal: Decimal("0") for meal in self.meal_guidance}
         totals[self.plant_protein_meal] += self.plant_protein.calories_kcal
         for portion in portions:
             record = records[portion.food_key]
@@ -589,7 +799,7 @@ class DietOptimizer:
         if soya_grams:
             assert self.soya is not None
             totals[self.soya_meal] += self.soya.calories_kcal * soya_grams / Decimal("100")
-        return tuple((meal, totals[meal]) for meal in self.meal_rules)
+        return tuple((meal, totals[meal]) for meal in self.meal_guidance)
 
     def _recalculate(self, portions: Sequence[SelectedPortion], soya_grams: Decimal,
                      records: Mapping[str, FoodRecord] | None = None) -> MacroTotals:
@@ -620,9 +830,9 @@ class DietOptimizer:
         return MacroTotals(calories, protein, carbs, fat)
 
     def _validate(self, portions: Sequence[SelectedPortion], totals: MacroTotals, soya_grams: Decimal,
-                  *, records: Mapping[str, FoodRecord], meal_calories: Sequence[tuple[str, Decimal]],
-                  require_protein: bool, enforce_minimum_calories: bool) -> None:
-        # Independent recomputation uses catalog source data, not CP-SAT values.
+                  *, records: Mapping[str, FoodRecord], require_protein: bool,
+                  enforce_minimum_calories: bool) -> None:
+        # Independent recomputation checks the result without any serving caps.
         checked = self._recalculate(portions, soya_grams, records)
         if checked != totals:
             raise OptimizationValidationError(f"macro recalculation mismatch: {checked!r} != {totals!r}")
@@ -633,37 +843,15 @@ class DietOptimizer:
             raise OptimizationValidationError("independent calories fall below required minimum")
         if require_protein and totals.protein_g < targets.minimum_protein_g:
             raise OptimizationValidationError("independent protein is below required minimum")
+        if soya_grams < 0 or soya_grams > Decimal(self.maximum_soya_grams):
+            raise OptimizationValidationError("soya exceeds the configured dry-weight maximum")
         if self.soya is None and soya_grams != 0:
             raise OptimizationValidationError("soya was used without a product label profile")
         recalculated_meals = self._recalculate_meal_calories(portions, soya_grams, records)
-        if tuple(meal_calories) != recalculated_meals:
-            raise OptimizationValidationError("independent meal calorie recalculation mismatch")
-        for meal, kcal in recalculated_meals:
-            rule = self.meal_rules[meal]
-            if not rule.minimum_calories_kcal <= kcal <= rule.maximum_calories_kcal:
-                raise OptimizationValidationError(f"meal {meal} is outside its calorie bounds")
-        daily_counts: dict[str, int] = {}
-        meal_counts: dict[tuple[str, str], int] = {}
-        group_counts: dict[str, int] = {}
-        for portion in portions:
-            daily_counts[portion.food_key] = daily_counts.get(portion.food_key, 0) + portion.servings
-            meal_counts[(portion.food_key, portion.meal)] = meal_counts.get((portion.food_key, portion.meal), 0) + portion.servings
-            limit = self.food_portion_limits.get(portion.food_key, FoodPortionLimit(2, 1))
-            if limit.exclusive_group is not None:
-                group_counts[limit.exclusive_group] = group_counts.get(limit.exclusive_group, 0) + portion.servings
-        for food_key, count in daily_counts.items():
-            limit = self.food_portion_limits.get(food_key, FoodPortionLimit(2, 1))
-            if count > limit.maximum_servings_per_day:
-                raise OptimizationValidationError(f"{food_key} exceeds its daily portion limit")
-        for (food_key, _meal), count in meal_counts.items():
-            limit = self.food_portion_limits.get(food_key, FoodPortionLimit(2, 1))
-            if count > limit.maximum_servings_per_meal:
-                raise OptimizationValidationError(f"{food_key} exceeds its per-meal portion limit")
-        for portion in portions:
-            limit = self.food_portion_limits.get(portion.food_key, FoodPortionLimit(2, 1))
-            if limit.exclusive_group and limit.exclusive_group_maximum_servings_per_day is not None:
-                if group_counts.get(limit.exclusive_group, 0) > limit.exclusive_group_maximum_servings_per_day:
-                    raise OptimizationValidationError(f"food group {limit.exclusive_group} exceeds its daily limit")
+        if sum((value for _, value in recalculated_meals), Decimal("0")) != totals.calories_kcal:
+            raise OptimizationValidationError("independent meal calorie totals do not sum to daily calories")
+        if any(p.servings <= 0 or p.total_grams != p.serving_grams * p.servings for p in portions):
+            raise OptimizationValidationError("selected serving weight does not match its integer serving count")
 
     def _complete_message(self, totals: MacroTotals, soya_grams: Decimal) -> str:
         gaps = []
