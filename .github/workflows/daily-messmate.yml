@@ -1,0 +1,111 @@
+name: MESSMATE daily diet plan
+
+on:
+  # 18:30 UTC is 00:00 on the next calendar day in Asia/Kolkata.
+  schedule:
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: Optional menu date (YYYY-MM-DD); blank means today's date in IST
+        required: false
+        type: string
+      dry_run:
+        description: Generate and persist the report without sending WhatsApp
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: messmate-daily-${{ github.event_name == 'workflow_dispatch' && (inputs.target_date || 'manual-current-date') || 'scheduled-current-date' }}
+  cancel-in-progress: false
+
+jobs:
+  daily-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # Pinned to verified upstream releases; checkout does not persist its token.
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install application and Neon driver
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . -r requirements-neon.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run unit tests
+        env:
+          MESSMATE_LIVE_SEND: "false"
+          MESSMATE_DRY_RUN: "true"
+        run: python -m unittest discover -s tests -v
+
+      - name: Resolve delivery safety mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+          SCHEDULE_LIVE_SEND: ${{ secrets.MESSMATE_LIVE_SEND }}
+        run: |
+          live_send=false
+          dry_run=true
+
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            if [[ "$SCHEDULE_LIVE_SEND" == "true" ]]; then
+              live_send=true
+              dry_run=false
+            fi
+          elif [[ "$DISPATCH_DRY_RUN" == "false" ]]; then
+            if [[ "$SCHEDULE_LIVE_SEND" != "true" ]]; then
+              echo "::error::dry_run=false requires the MESSMATE_LIVE_SEND Actions Secret to equal true"
+              exit 1
+            fi
+            live_send=true
+            dry_run=false
+          fi
+
+          {
+            echo "MESSMATE_LIVE_SEND=$live_send"
+            echo "MESSMATE_DRY_RUN=$dry_run"
+          } >> "$GITHUB_ENV"
+
+      - name: Scrape, optimize, and prepare daily delivery
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          WHATSAPP_RECIPIENT: ${{ secrets.WHATSAPP_RECIPIENT }}
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_TEMPLATE_NAME: ${{ secrets.WHATSAPP_TEMPLATE_NAME }}
+          WHATSAPP_TEMPLATE_LANGUAGE: ${{ secrets.WHATSAPP_TEMPLATE_LANGUAGE }}
+          WHATSAPP_GRAPH_VERSION: ${{ secrets.WHATSAPP_GRAPH_VERSION }}
+          MESSMATE_USER_HEIGHT_CM: ${{ secrets.MESSMATE_USER_HEIGHT_CM }}
+          MESSMATE_USER_WEIGHT_KG: ${{ secrets.MESSMATE_USER_WEIGHT_KG }}
+          MESSMATE_USER_GOAL: ${{ secrets.MESSMATE_USER_GOAL }}
+          MESSMATE_TARGET_DATE: ${{ inputs.target_date }}
+          MESSMATE_MENU_RETRY_ATTEMPTS: "5"
+          MESSMATE_MENU_RETRY_INITIAL_SECONDS: "120"
+          MESSMATE_MENU_RETRY_MULTIPLIER: "2"
+          MESSMATE_MENU_RETRY_MAX_SECONDS: "900"
+        run: python -m messmate_app.daily
+
+      - name: Upload safe daily report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: messmate-daily-report-${{ github.run_id }}
+          path: reports/*.txt
+          if-no-files-found: warn
+          retention-days: 1

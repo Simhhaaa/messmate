@@ -1,0 +1,30 @@
+# Credentials and local environment files
+.env
+.env.*
+!.env.example
+
+# Python environments, caches and build output
+.venv/
+venv/
+.python/
+.uv-cache/
+.playwright-browsers/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Scraped raw captures and user-specific generated diet reports
+data/raw_snapshots/
+data/nutrition_demos/
+reports/
+
+# Local databases and transient files
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.tmp
+*.log

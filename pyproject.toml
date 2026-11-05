@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "messmate-scraper"
+version = "0.1.0"
+description = "Backend-only RU Print Portal menu scraper for MESSMATE"
+requires-python = ">=3.12"
+dependencies = ["playwright>=1.47,<2", "ortools>=9.14,<10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+messmate_delivery = ["migrations/*.sql"]
+
+[tool.unittest]
+start-directory = "tests"

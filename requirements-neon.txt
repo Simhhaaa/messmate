@@ -1,0 +1,2 @@
+# Optional production dependency for the Neon PostgreSQL delivery store.
+psycopg[binary]>=3.2,<4

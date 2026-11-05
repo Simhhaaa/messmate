@@ -1,0 +1,53 @@
+{
+  "fixture_notice": "Sanitized menu-only test fixture; raw portal HTML and visible text excluded.",
+  "requested_date": "2026-11-06",
+  "portal_today": "2026-11-05",
+  "fetched_at": "2026-11-05T11:23:07.775053+05:30",
+  "source_url": "https://ru-print.vercel.app/",
+  "meals": {
+    "Breakfast": {
+      "items": [
+        "Banana",
+        "Masala Oats",
+        "Muesli",
+        "Sada Paratha",
+        "Chana Palak Ki Sabzi",
+        "Hot Milk (D)",
+        "Cold Milk (D)",
+        "Tea (D)",
+        "Coffee Powder",
+        "Bread/Butter/Jam"
+      ]
+    },
+    "Lunch": {
+      "items": [
+        "Arhar Dal Home Style",
+        "Paneer Do-Pyaza",
+        "Ullipai Pacchadi",
+        "Curd",
+        "Green Salad",
+        "Jeera Rice",
+        "Chapati"
+      ]
+    },
+    "Snacks": {
+      "items": [
+        "Veg Puff",
+        "Hot Coffee",
+        "Ketchup",
+        "Tea (D)",
+        "Coffee Powder"
+      ]
+    },
+    "Dinner": {
+      "items": [
+        "Chole Masala",
+        "Jeera Aloo",
+        "Green Salad",
+        "Rasam",
+        "Jeera Rice",
+        "Chapati"
+      ]
+    }
+  }
+}
