@@ -19,6 +19,9 @@ from messmate_scraper.models import DailyMenu, MealSection
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/daily-messmate.yml"
 SNAPSHOT = ROOT / "tests/fixtures/nov6_menu_fixture.json"
+SYNTHETIC_PROFILE = UserNutritionProfile(
+    Decimal("170"), Decimal("65"), "Synthetic unit-test profile"
+)
 
 
 class RunModeTests(unittest.TestCase):
@@ -104,7 +107,7 @@ class DailyPipelineSafetyTests(unittest.IsolatedAsyncioTestCase):
                 scraper=FakeScraper(),
                 store=store,
                 adapter=adapter,
-                profile=UserNutritionProfile(Decimal("170"), Decimal("65"), "Synthetic unit-test profile"),
+                profile=SYNTHETIC_PROFILE,
             )
             self.assertTrue(run.outcome.dry_run)
             self.assertEqual(run.outcome.status, DeliveryStatus.PREPARED)
@@ -149,6 +152,7 @@ class DailyPipelineSafetyTests(unittest.IsolatedAsyncioTestCase):
                     report_dir=Path(temporary),
                     scraper=BrokenScraper(),
                     store=SQLiteDeliveryStore(),
+                    profile=SYNTHETIC_PROFILE,
                 )
             contents = report.read_text(encoding="utf-8")
             self.assertIn("Error type: RuntimeError", contents)
