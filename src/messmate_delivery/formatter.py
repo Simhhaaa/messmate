@@ -1,4 +1,4 @@
-"""Compact WhatsApp representation of an optimization result."""
+"""Compact, channel-neutral text representation of an optimization result."""
 
 from __future__ import annotations
 

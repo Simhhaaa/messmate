@@ -1,4 +1,4 @@
-"""Dry-run-first WhatsApp delivery for MESSMATE diet plans."""
+"""Dry-run-first messaging delivery for MESSMATE diet plans."""
 
 from .models import DeliveryOutcome, DeliveryStatus
 from .service import DietPlanDeliveryService, LiveSendingDisabled

@@ -17,6 +17,15 @@ class RunMode:
     live_send: bool
 
 
+def resolve_channel(environ: dict[str, str] | None = None) -> str:
+    """Select a delivery channel; Telegram is the new default."""
+    env = os.environ if environ is None else environ
+    channel = env.get("MESSMATE_CHANNEL", "telegram").strip().casefold()
+    if channel not in {"telegram", "whatsapp"}:
+        raise RunConfigurationError("MESSMATE_CHANNEL must be telegram or whatsapp")
+    return channel
+
+
 def _boolean(name: str, raw: str | None, *, default: bool) -> bool:
     if raw is None or raw == "":
         return default

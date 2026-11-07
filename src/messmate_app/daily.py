@@ -16,12 +16,13 @@ from messmate_delivery.adapters import WhatsAppCloudAPIAdapter
 from messmate_delivery.models import DeliveryOutcome
 from messmate_delivery.neon_store import NeonDeliveryStore
 from messmate_delivery.service import DietPlanDeliveryService
+from messmate_delivery.telegram_adapter import TelegramBotAPIAdapter
 from messmate_nutrition.optimizer import DietOptimizer, UserNutritionProfile, menu_items_from_snapshot
 from messmate_nutrition.profile_config import load_user_profile
 from messmate_scraper.models import DailyMenu, RetryPolicy
 from messmate_scraper.portal import PortalScraper
 
-from .config import RunConfigurationError, RunMode, resolve_run_mode, resolve_target_date
+from .config import RunConfigurationError, RunMode, resolve_channel, resolve_run_mode, resolve_target_date
 
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("messmate.daily")
@@ -64,6 +65,7 @@ async def run_daily_pipeline(
     store: Any | None = None,
     adapter: Any | None = None,
     profile: UserNutritionProfile | None = None,
+    channel: str | None = None,
 ) -> DailyRunResult:
     """Execute the production pipeline; dependencies are injectable for tests."""
     report_path = report_dir / f"messmate-diet-{target_date.isoformat()}.txt"
@@ -71,6 +73,7 @@ async def run_daily_pipeline(
     try:
         if not mode.dry_run and not mode.live_send:
             raise RunConfigurationError("live mode requires MESSMATE_LIVE_SEND=true")
+        channel = resolve_channel() if channel is None else resolve_channel({"MESSMATE_CHANNEL": channel})
         stage = "profile configuration"
         profile = profile or load_user_profile()
         stage = "scrape"
@@ -99,13 +102,18 @@ async def run_daily_pipeline(
 
         stage = "delivery"
         if not mode.dry_run and adapter is None:
-            adapter = WhatsAppCloudAPIAdapter.from_env()
+            adapter = TelegramBotAPIAdapter.from_env() if channel == "telegram" else WhatsAppCloudAPIAdapter.from_env()
+        template_name = (
+            "telegram.sendMessage" if channel == "telegram"
+            else os.getenv("WHATSAPP_TEMPLATE_NAME", "messmate_diet_plan")
+        )
         service = DietPlanDeliveryService(
             store,
             adapter,
             dry_run=mode.dry_run,
             live_send_enabled=mode.live_send,
-            template_name=os.getenv("WHATSAPP_TEMPLATE_NAME", "messmate_diet_plan"),
+            template_name=template_name,
+            channel=channel,
         )
         outcome = service.deliver(recipient, target_date, result)
         # Artifacts are visible to repository users; keep them operational-only.
@@ -137,10 +145,12 @@ async def _run_from_environment() -> DailyRunResult:
     today = datetime.now(IST).date()
     try:
         mode = resolve_run_mode()
+        channel = resolve_channel()
         target_date = resolve_target_date(os.getenv("MESSMATE_TARGET_DATE"), today=today)
-        recipient = os.environ.get("WHATSAPP_RECIPIENT", "")
+        recipient_env = "TELEGRAM_CHAT_ID" if channel == "telegram" else "WHATSAPP_RECIPIENT"
+        recipient = os.environ.get(recipient_env, "")
         if not recipient:
-            raise ValueError("WHATSAPP_RECIPIENT is required")
+            raise ValueError(f"{recipient_env} is required")
         profile = load_user_profile()
     except Exception as exc:
         logger.error("Daily run failed stage=configuration error_type=%s", type(exc).__name__)
@@ -152,7 +162,9 @@ async def _run_from_environment() -> DailyRunResult:
         except OSError:
             logger.error("Could not write configuration failure report")
         raise
-    return await run_daily_pipeline(target_date=target_date, mode=mode, recipient=recipient, profile=profile)
+    return await run_daily_pipeline(
+        target_date=target_date, mode=mode, recipient=recipient, profile=profile, channel=channel
+    )
 
 
 def main() -> None:

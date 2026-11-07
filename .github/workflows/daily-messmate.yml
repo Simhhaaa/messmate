@@ -11,10 +11,18 @@ on:
         required: false
         type: string
       dry_run:
-        description: Generate and persist the report without sending WhatsApp
+        description: Generate and persist the report without sending a message
         required: true
         type: boolean
         default: true
+      channel:
+        description: Delivery channel for this run
+        required: true
+        type: choice
+        options:
+          - telegram
+          - whatsapp
+        default: telegram
 
 permissions:
   contents: read
@@ -54,6 +62,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Resolve delivery safety mode
+        id: resolve-mode
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -80,7 +89,29 @@ jobs:
           {
             echo "MESSMATE_LIVE_SEND=$live_send"
             echo "MESSMATE_DRY_RUN=$dry_run"
+            echo "live_send=$live_send" >> "$GITHUB_OUTPUT"
+            echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
           } >> "$GITHUB_ENV"
+
+      - name: Resolve delivery channel
+        id: resolve-channel
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_CHANNEL: ${{ inputs.channel }}
+          SCHEDULE_CHANNEL: ${{ vars.MESSMATE_CHANNEL }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            channel="$DISPATCH_CHANNEL"
+          else
+            channel="${SCHEDULE_CHANNEL:-telegram}"
+          fi
+          if [[ "$channel" != "telegram" && "$channel" != "whatsapp" ]]; then
+            echo "::error::MESSMATE_CHANNEL must be telegram or whatsapp"
+            exit 1
+          fi
+          echo "MESSMATE_CHANNEL=$channel" >> "$GITHUB_ENV"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Scrape, optimize, and prepare daily delivery
         env:
@@ -91,6 +122,8 @@ jobs:
           WHATSAPP_TEMPLATE_NAME: ${{ secrets.WHATSAPP_TEMPLATE_NAME }}
           WHATSAPP_TEMPLATE_LANGUAGE: ${{ secrets.WHATSAPP_TEMPLATE_LANGUAGE }}
           WHATSAPP_GRAPH_VERSION: ${{ secrets.WHATSAPP_GRAPH_VERSION }}
+          TELEGRAM_BOT_TOKEN: ${{ steps.resolve-channel.outputs.channel == 'telegram' && steps.resolve-mode.outputs.live_send == 'true' && secrets.TELEGRAM_BOT_TOKEN || '' }}
+          TELEGRAM_CHAT_ID: ${{ steps.resolve-channel.outputs.channel == 'telegram' && secrets.TELEGRAM_CHAT_ID || '' }}
           MESSMATE_USER_HEIGHT_CM: ${{ secrets.MESSMATE_USER_HEIGHT_CM }}
           MESSMATE_USER_WEIGHT_KG: ${{ secrets.MESSMATE_USER_WEIGHT_KG }}
           MESSMATE_USER_GOAL: ${{ secrets.MESSMATE_USER_GOAL }}

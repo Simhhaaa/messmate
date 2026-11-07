@@ -6,16 +6,22 @@ import json
 import os
 import unittest
 import uuid
+from io import BytesIO
 from functools import lru_cache
+from http.client import IncompleteRead
 from unittest.mock import patch
 from urllib.error import HTTPError
 
 from messmate_delivery.adapters import MockWhatsAppAdapter, WhatsAppCloudAPIAdapter
-from messmate_delivery.errors import LiveSendingDisabled, RetryableWhatsAppRejection, UncertainWhatsAppSend
+from messmate_delivery.errors import (
+    LiveSendingDisabled, PermanentChannelRejection, RetryableChannelRejection,
+    RetryableWhatsAppRejection, UncertainChannelSend, UncertainWhatsAppSend,
+)
 from messmate_delivery.formatter import render_plan_message
 from messmate_delivery.models import DeliveryIdentity, DeliveryStatus
 from messmate_delivery.service import DietPlanDeliveryService
 from messmate_delivery.store import SQLiteDeliveryStore
+from messmate_delivery.telegram_adapter import TelegramBotAPIAdapter
 from messmate_nutrition.optimizer import DietOptimizer, UserNutritionProfile, menu_items_from_snapshot
 
 
@@ -124,6 +130,173 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaises(UncertainWhatsAppSend) as caught:
                 adapter.send("+15551234567", "test content", "messmate")
         self.assertNotIn("top-secret-token", str(caught.exception))
+
+    def test_telegram_adapter_sends_plain_text_and_returns_provider_id(self):
+        adapter = TelegramBotAPIAdapter(bot_token="12345:synthetic-test-token")
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self): return b'{"ok":true,"result":{"message_id":321}}'
+
+        with patch("messmate_delivery.telegram_adapter.urlopen", return_value=Response()) as request:
+            accepted = adapter.send("-1001234567890", "hello Telegram", "ignored-template")
+        self.assertEqual(accepted.provider_message_id, "321")
+        req = request.call_args.args[0]
+        payload = json.loads(req.data)
+        self.assertEqual(payload, {"chat_id": "-1001234567890", "text": "hello Telegram"})
+        self.assertNotIn("parse_mode", payload)
+        self.assertEqual(req.method, "POST")
+
+    def test_telegram_429_is_definite_and_exposes_only_retry_delay(self):
+        adapter = TelegramBotAPIAdapter(bot_token="token-for-test")
+        error = HTTPError("https://api.telegram.org/bottoken-for-test/sendMessage", 429,
+                          "private response", {}, BytesIO(
+                              b'{"ok":false,"error_code":429,"parameters":{"retry_after":17}}'))
+        with patch("messmate_delivery.telegram_adapter.urlopen", side_effect=error):
+            with self.assertRaises(RetryableChannelRejection) as caught:
+                adapter.send("123456", "private message", "unused")
+        self.assertEqual(caught.exception.retry_after_seconds, 17)
+        self.assertNotIn("token-for-test", str(caught.exception))
+        self.assertNotIn("123456", str(caught.exception))
+        self.assertNotIn("private message", str(caught.exception))
+        self.assertNotIn("api.telegram.org", str(caught.exception))
+        self.assertNotIn("private response", str(caught.exception))
+
+    def test_telegram_permanent_rejection_is_sanitized(self):
+        adapter = TelegramBotAPIAdapter(bot_token="token-for-test")
+        error = HTTPError("secret-request-url", 400, "private provider body", {}, BytesIO(
+            b'{"ok":false,"error_code":400,"description":"private provider body"}'))
+        with patch("messmate_delivery.telegram_adapter.urlopen", side_effect=error):
+            with self.assertRaises(PermanentChannelRejection) as caught:
+                adapter.send("123456", "private message", "unused")
+        for secret in ("secret-request-url", "private provider body", "private message"):
+            self.assertNotIn(secret, str(caught.exception))
+
+    def test_telegram_transport_and_server_failures_are_uncertain_and_redacted(self):
+        adapter = TelegramBotAPIAdapter(bot_token="token-for-test")
+        error = HTTPError("secret-request-url", 503, "private provider body", {}, BytesIO(b"{}"))
+        with patch("messmate_delivery.telegram_adapter.urlopen", side_effect=error):
+            with self.assertRaises(UncertainChannelSend) as caught:
+                adapter.send("123456", "private message", "unused")
+        self.assertTrue(caught.exception.uncertain)
+        for secret in ("secret-request-url", "private provider body", "private message", "123456"):
+            self.assertNotIn(secret, str(caught.exception))
+
+        with patch("messmate_delivery.telegram_adapter.urlopen", side_effect=OSError("raw token-for-test")):
+            with self.assertRaises(UncertainChannelSend) as transport:
+                adapter.send("123456", "private message", "unused")
+        self.assertNotIn("token-for-test", str(transport.exception))
+
+    def test_telegram_unexpected_transport_error_is_uncertain_and_fully_sanitized(self):
+        token = "synthetic-token-never-log"
+        chat_id = "987654321"
+        body = "private diet message"
+        request_url = f"https://api.telegram.org/bot{token}/sendMessage"
+        adapter = TelegramBotAPIAdapter(bot_token=token)
+        # IncompleteRead is an http.client exception, not an OSError, and its
+        # text includes response bytes. It must not escape the adapter.
+        transport_error = IncompleteRead(f"response includes {token}".encode())
+        with self.assertNoLogs("messmate_delivery.telegram_adapter", level="DEBUG"):
+            with patch("messmate_delivery.telegram_adapter.urlopen", side_effect=transport_error):
+                with self.assertRaises(UncertainChannelSend) as caught:
+                    adapter.send(chat_id, body, "unused")
+        self.assertTrue(caught.exception.uncertain)
+        for sensitive in (token, chat_id, body, request_url, "response includes"):
+            self.assertNotIn(sensitive, str(caught.exception))
+
+    def test_telegram_message_length_and_chat_id_validation(self):
+        adapter = TelegramBotAPIAdapter(bot_token="synthetic")
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self): return b'{"ok":true,"result":{"message_id":1}}'
+
+        with patch("messmate_delivery.telegram_adapter.urlopen", return_value=Response()) as request:
+            adapter.send("123456", "x" * 4096, "unused")
+            with self.assertRaises(ValueError):
+                adapter.send("123456", "x" * 4097, "unused")
+            with self.assertRaises(ValueError):
+                adapter.send("bad chat id", "hello", "unused")
+        self.assertEqual(request.call_count, 1)
+
+    def test_missing_telegram_token_fails_before_any_request(self):
+        with patch("messmate_delivery.telegram_adapter.os.environ.get", return_value=""):
+            with patch("messmate_delivery.telegram_adapter.urlopen") as request:
+                with self.assertRaisesRegex(ValueError, "TELEGRAM_BOT_TOKEN is required"):
+                    TelegramBotAPIAdapter.from_env()
+        request.assert_not_called()
+
+    def test_delivery_identity_is_channel_isolated_and_whatsapp_legacy_key_is_preserved(self):
+        plan_date = date(2026, 11, 6)
+        legacy = DeliveryIdentity.for_recipient("+1 (555) 123-4567", plan_date)
+        explicit_whatsapp = DeliveryIdentity.for_recipient("+1 (555) 123-4567", plan_date, channel="whatsapp")
+        telegram = DeliveryIdentity.for_recipient("-1001234567890", plan_date, channel="telegram")
+        self.assertEqual(legacy, explicit_whatsapp)
+        self.assertNotEqual(legacy.delivery_key, telegram.delivery_key)
+        self.assertEqual(telegram.message_kind, "telegram:diet_plan")
+
+    def test_telegram_duplicate_protection_and_channel_isolation(self):
+        result = actual_nov6_result()
+
+        class CountingAdapter:
+            def __init__(self): self.calls = 0
+            def send(self, *_):
+                self.calls += 1
+                return type("Accepted", (), {"provider_message_id": "321"})()
+
+        store = SQLiteDeliveryStore()
+        telegram_adapter = CountingAdapter()
+        telegram = DietPlanDeliveryService(store, telegram_adapter, dry_run=False,
+                                           live_send_enabled=True, channel="telegram")
+        first = telegram.deliver("-1001234567890", date(2026, 11, 6), result)
+        second = telegram.deliver("-1001234567890", date(2026, 11, 6), result)
+        self.assertEqual(first.status, DeliveryStatus.ACCEPTED)
+        self.assertFalse(second.sent)
+        self.assertEqual(telegram_adapter.calls, 1)
+
+        whatsapp_adapter = MockWhatsAppAdapter()
+        whatsapp = DietPlanDeliveryService(store, whatsapp_adapter, dry_run=False,
+                                           live_send_enabled=True, channel="whatsapp")
+        other = whatsapp.deliver("-1001234567890", date(2026, 11, 6), result)
+        self.assertEqual(other.status, DeliveryStatus.ACCEPTED)
+        self.assertEqual(len(whatsapp_adapter.calls), 1)
+
+    def test_telegram_retry_after_is_honored_and_uncertain_failure_is_never_resent(self):
+        result = actual_nov6_result()
+
+        class OnceLimited:
+            def __init__(self): self.calls = 0
+            def send(self, *_):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RetryableChannelRejection("telegram_http_429", 47)
+                return type("Accepted", (), {"provider_message_id": "654"})()
+
+        rate_limited = OnceLimited()
+        sleeps = []
+        outcome = DietPlanDeliveryService(SQLiteDeliveryStore(), rate_limited, dry_run=False,
+                    live_send_enabled=True, channel="telegram", sleep_fn=sleeps.append).deliver(
+                        "123456", date(2026, 11, 6), result)
+        self.assertEqual(outcome.status, DeliveryStatus.ACCEPTED)
+        self.assertEqual(rate_limited.calls, 2)
+        self.assertEqual(sleeps, [47])
+
+        class Ambiguous:
+            def __init__(self): self.calls = 0
+            def send(self, *_):
+                self.calls += 1
+                raise UncertainChannelSend("telegram_transport_ambiguous")
+
+        uncertain = Ambiguous()
+        store = SQLiteDeliveryStore()
+        service = DietPlanDeliveryService(store, uncertain, dry_run=False,
+                                          live_send_enabled=True, channel="telegram")
+        first = service.deliver("123456", date(2026, 11, 6), result)
+        second = service.deliver("123456", date(2026, 11, 6), result)
+        self.assertEqual(first.status, DeliveryStatus.UNCERTAIN)
+        self.assertFalse(second.sent)
+        self.assertEqual(uncertain.calls, 1)
 
 
 @unittest.skipUnless(os.getenv("MESSMATE_TEST_NEON_DATABASE_URL"), "Neon integration URL not configured")

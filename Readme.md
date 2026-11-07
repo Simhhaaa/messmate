@@ -1,7 +1,8 @@
 # MESSMATE
 
 Backend-only system for scraping the RU Print Portal, estimating nutrition,
-optimizing mess-food plans, and preparing WhatsApp delivery. There is no
+optimizing mess-food plans, and preparing Telegram delivery. WhatsApp remains
+available as an explicitly selectable alternative. There is no
 frontend or continuously running server.
 
 ## Setup
@@ -52,12 +53,12 @@ need a browser. Run them from the project root:
 ```sh
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
-# Phase 4: WhatsApp delivery
+# Phase 4: Channel-based message delivery
 
 The delivery package is backend-only and dry-run-first. Its default service
 mode only renders the message and persists a `prepared` record. It does not
-contact WhatsApp. Controlled live testing requires both `dry_run=False` in the
-caller and `MESSMATE_WHATSAPP_LIVE_SEND_ENABLED=true`, plus the environment
+contact a messaging provider. Controlled live testing requires `dry_run=False`
+and the channel's explicit live-send gate, plus its environment
 variables `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, and
 `WHATSAPP_TEMPLATE_NAME`, plus the currently supported `WHATSAPP_GRAPH_VERSION`.
 Never put credentials in source control or logs.
@@ -78,9 +79,9 @@ resent. Expired leases are recovered as `uncertain`. Only explicit HTTP 429
 rejections are retried, with a small bounded retry count; ambiguous failures
 are not retried.
 
-The real adapter sends an approved WhatsApp template with a single body
-parameter. Configure a matching approved template in Meta before controlled
-live tests. The test suite uses `MockWhatsAppAdapter` and SQLite; the optional
+The WhatsApp adapter sends an approved template with a single body parameter.
+Configure a matching approved template in Meta before controlled live tests.
+The test suite uses mocked adapters and SQLite; the optional
 Neon concurrency integration test runs only when
 `MESSMATE_TEST_NEON_DATABASE_URL` points at an isolated test database.
 
@@ -119,6 +120,8 @@ configuration is incomplete. Nutrition targets remain application policy in
 source. Never commit the private file.
 
 - `NEON_DATABASE_URL`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 - `WHATSAPP_RECIPIENT`
 - `WHATSAPP_ACCESS_TOKEN`
 - `WHATSAPP_PHONE_NUMBER_ID`
@@ -136,9 +139,42 @@ may expose artifacts publicly), so the report contains no private plan data.
 Raw menu snapshots are kept out of artifacts. Logs include status and exception types only; they
 omit phone numbers, credentials and exception text. GitHub
 concurrency and the Neon unique delivery identity/atomic claim both guard
-against duplicate sends. Live WhatsApp remains disabled until an operator
+against duplicate sends. Live messaging remains disabled until an operator
 explicitly configures the live-send Secret and, for a manual run, selects
 `dry_run=false`.
+
+## Phase 6: Telegram delivery
+
+Telegram is the default scheduled and manual channel. For scheduled runs, set
+the repository Actions Variable `MESSMATE_CHANNEL` to `whatsapp` only when
+WhatsApp is explicitly desired; leaving it unset selects Telegram. Manual runs
+offer a channel selector that defaults to Telegram. Both channels use the same
+dry-run and explicit live-send safety gates. Manual runs default to
+`dry_run=true`; scheduled runs remain dry-run unless the existing
+`MESSMATE_LIVE_SEND` Secret is exactly `true`.
+
+Configure these Actions Secrets for Telegram delivery:
+
+- `TELEGRAM_BOT_TOKEN` — create/manage the bot through Telegram's BotFather.
+- `TELEGRAM_CHAT_ID` — numeric conversation ID (including a leading minus for
+  groups) or a supported `@username`.
+
+Start a conversation with the bot (send `/start`) or add it to the target group
+before configuring the chat ID. Keep both values in
+GitHub Secrets or the local process environment only. Do not put them in source
+files, reports, command-line arguments, or chat messages. The Telegram adapter
+calls the Bot API `sendMessage` method with plain text and no `parse_mode`; it
+rejects messages over Telegram's 4096-character limit. Provider URLs include
+the bot token by API design, so the adapter never logs request URLs, request or
+response bodies, chat IDs, tokens, or raw provider exceptions. Definite HTTP
+429 rejections may be retried using Telegram's `retry_after`; transport or
+server failures are marked `uncertain` and are never automatically resent.
+
+WhatsApp remains selectable by setting `MESSMATE_CHANNEL=whatsapp` for the
+scheduled workflow or choosing WhatsApp in manual dispatch. It continues to
+use its existing recipient, template, and Cloud API Secrets. Channel-specific
+delivery identities keep Telegram and WhatsApp records separate while the
+existing WhatsApp identity derivation remains unchanged.
 
 ## Existing repository note
 
