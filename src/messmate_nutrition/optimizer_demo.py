@@ -68,12 +68,17 @@ def render_optimization(snapshot_path: Path, *, profile: UserNutritionProfile | 
         if not items:
             lines.append("    - No menu items extracted")
     lines.extend(("", "Selected foods by meal:"))
+    coverage = {entry.meal: entry for entry in result.meal_coverage}
     for meal in meal_names:
         lines.append(f"  {meal}:")
         selected = [part for part in result.portions if part.meal == meal]
         lines.extend(f"    - {part.food_name}: {format_selected_portion(part)}; confidence {part.confidence}" for part in selected)
         if not selected:
-            lines.append("    - No eligible mess food selected")
+            meal_coverage = coverage.get(meal)
+            if meal in {"Breakfast", "Lunch", "Dinner"} and meal_coverage is not None:
+                lines.append(f"    - Unavailable: {meal_coverage.reason}")
+            else:
+                lines.append("    - No eligible mess food selected")
         if meal == optimizer.plant_protein_meal:
             lines.append("    - Plant protein isolate: exactly 1 scoop (35 g; label P 29 g, C 2 g, F 0.48 g, 132 kcal)")
         if meal == optimizer.soya_meal and result.soya_dry_grams:
@@ -108,7 +113,7 @@ def render_optimization(snapshot_path: Path, *, profile: UserNutritionProfile | 
     lines.extend(f"  - {item}" for item in result.soft_preference_deviations)
     if not result.soft_preference_deviations:
         lines.append("  - None")
-    lines.extend(("", "Warnings and portion guidance (advisory; no serving caps applied):"))
+    lines.extend(("", "Warnings and serving guidance (food-specific hard limits plus soft preferences):"))
     lines.extend(f"  - {item}" for item in result.warnings)
     if not result.warnings:
         lines.append("  - None")

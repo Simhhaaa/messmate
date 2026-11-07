@@ -9,10 +9,12 @@ import time
 
 from .adapters import WhatsAppAdapter
 from .errors import (
-    ChannelSendError, LiveSendingDisabled, RetryableWhatsAppRejection, WhatsAppSendError,
+    ChannelSendError, LiveSendingDisabled, PlanNotDeliverable,
+    RetryableWhatsAppRejection, WhatsAppSendError,
 )
 from .formatter import render_plan_message
 from .models import DeliveryIdentity, DeliveryOutcome, DeliveryStatus
+from messmate_nutrition.optimizer import validate_optimization_result
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,10 @@ class DietPlanDeliveryService:
         self.channel = channel
 
     def deliver(self, recipient: str, plan_date: date, optimization_result) -> DeliveryOutcome:
+        if validate_optimization_result(optimization_result):
+            raise PlanNotDeliverable(
+                "Optimization result failed complete-plan validation; no delivery was prepared."
+            )
         message = render_plan_message(plan_date, optimization_result)
         identity = DeliveryIdentity.for_recipient(recipient, plan_date, channel=self.channel)
         payload_hash = hashlib.sha256(message.encode("utf-8")).hexdigest()

@@ -9,6 +9,10 @@ class LiveSendingDisabled(DeliveryError):
     pass
 
 
+class PlanNotDeliverable(DeliveryError):
+    """The optimization result failed complete-plan safety validation."""
+
+
 class DeliveryLeaseLost(DeliveryError):
     pass
 

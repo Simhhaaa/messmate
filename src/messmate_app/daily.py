@@ -13,11 +13,14 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from messmate_delivery.adapters import WhatsAppCloudAPIAdapter
+from messmate_delivery.errors import PlanNotDeliverable
 from messmate_delivery.models import DeliveryOutcome
 from messmate_delivery.neon_store import NeonDeliveryStore
 from messmate_delivery.service import DietPlanDeliveryService
 from messmate_delivery.telegram_adapter import TelegramBotAPIAdapter
-from messmate_nutrition.optimizer import DietOptimizer, UserNutritionProfile, menu_items_from_snapshot
+from messmate_nutrition.optimizer import (
+    DietOptimizer, UserNutritionProfile, menu_items_from_snapshot, validate_optimization_result,
+)
 from messmate_nutrition.profile_config import load_user_profile
 from messmate_scraper.models import DailyMenu, RetryPolicy
 from messmate_scraper.portal import PortalScraper
@@ -93,6 +96,11 @@ async def run_daily_pipeline(
         stage = "optimize"
         snapshot = _snapshot_for_menu(menu)
         result = DietOptimizer(profile=profile).optimize(menu_items_from_snapshot(snapshot))
+        if validate_optimization_result(result):
+            stage = "optimization validation"
+            raise PlanNotDeliverable(
+                "Optimization result failed complete-plan validation; delivery and persistence were skipped."
+            )
 
         stage = "database"
         store = store or NeonDeliveryStore()

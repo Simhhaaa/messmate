@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 import inspect
 import json
@@ -12,14 +13,18 @@ from messmate_nutrition.optimizer import (
     SOYA_CHUNKS_LABEL,
     DEFAULT_MEAL_GUIDANCE,
     DietOptimizer,
+    MealProteinGuidance,
     MealGuidance,
     MenuItem,
     NutritionTargets,
     PlanStatus,
     PortionGuidance,
+    PortionLimits,
+    SelectedPortion,
     SupplementProfile,
     UserNutritionProfile,
     menu_items_from_snapshot,
+    validate_optimization_result,
 )
 from messmate_nutrition.optimizer_demo import render_optimization
 
@@ -48,6 +53,11 @@ def test_menu(protein: str = "20", calories: str = "300") -> tuple:
 
 def test_optimizer(**kwargs) -> DietOptimizer:
     kwargs.setdefault("profile", SYNTHETIC_PROFILE)
+    test_limits = {key: PortionLimits(2, 4) for key in
+                   ("a", "b", "c", "domain", "zero", "only", "low", "weak")}
+    test_limits["repeat_dish"] = PortionLimits(2, 6)
+    test_limits.update(kwargs.pop("portion_limits", {}))
+    kwargs.setdefault("portion_limits", test_limits)
     return DietOptimizer(**kwargs)
 
 
@@ -104,9 +114,12 @@ class OptimizerProfileTests(unittest.TestCase):
             MealGuidance(Decimal("700"), Decimal("400"))
         with self.assertRaises(ValueError):
             PortionGuidance(0, 2)
+        with self.assertRaises(ValueError):
+            PortionLimits(0, 2)
+        self.assertEqual(MealProteinGuidance(Decimal("20"), Decimal("40")).maximum_protein_g, Decimal("40"))
         params = inspect.signature(DietOptimizer).parameters
-        self.assertNotIn("food_portion_limits", params)
-        self.assertNotIn("meal_rules", params)
+        self.assertIn("portion_limits", params)
+        self.assertIn("meal_protein_guidance", params)
 
 
 class OptimizerBehaviorTests(unittest.TestCase):
@@ -124,15 +137,16 @@ class OptimizerBehaviorTests(unittest.TestCase):
         self.assertGreaterEqual(result.totals.protein_g, Decimal("120"))
         self.assertLess(result.totals.protein_g, Decimal("155"))  # stretch is not mandatory
 
-    def test_unlimited_mess_availability_allows_more_than_old_artificial_caps(self):
+    def test_food_specific_hard_daily_and_per_meal_limits_are_enforced(self):
         same_dish = food("repeat_dish", "Available curry", "20")
         menu = tuple(MenuItem(meal, same_dish) for meal in ("Breakfast", "Lunch", "Dinner"))
         result = test_optimizer().optimize(menu)
         self.assertEqual(result.status, PlanStatus.FEASIBLE)
         total_servings = sum(p.servings for p in result.portions)
-        self.assertGreater(total_servings, 4)  # advisory default only; no serving cap
+        self.assertLessEqual(total_servings, 6)
+        self.assertTrue(all(p.servings <= 2 for p in result.portions))
         self.assertLessEqual(result.totals.calories_kcal, Decimal("2000"))
-        self.assertTrue(any("no hard cap applied" in warning for warning in result.warnings))
+        self.assertTrue(result.is_valid_target_plan)
 
     def test_solver_domain_is_derived_from_calorie_ceiling(self):
         optimizer = test_optimizer()
@@ -152,7 +166,8 @@ class OptimizerBehaviorTests(unittest.TestCase):
         result = test_optimizer(meal_guidance=strict_advice).optimize(
             (MenuItem("Breakfast", food("only", "Only available food", "20")),)
         )
-        self.assertEqual(result.status, PlanStatus.FEASIBLE)
+        self.assertEqual(result.status, PlanStatus.INFEASIBLE)
+        self.assertTrue(any(item.meal == "Lunch" and not item.available for item in result.meal_coverage))
         self.assertGreater(dict(result.meal_calories_kcal)["Breakfast"], Decimal("100"))
         self.assertTrue(any("Breakfast" in deviation and "soft meal window" in deviation for deviation in result.soft_preference_deviations))
         self.assertTrue(any("Breakfast" in warning and "soft preferred calorie window" in warning for warning in result.warnings))
@@ -169,21 +184,29 @@ class OptimizerBehaviorTests(unittest.TestCase):
         self.assertTrue(any("Breakfast" in warning and "soft preferred calorie window" in warning
                             for warning in result.warnings))
 
-    def test_large_portions_warn_but_do_not_block_plan(self):
+    def test_configured_hard_portion_limit_and_soft_warning_are_both_reported(self):
+        dish = food("only", "Only available food", "15", calories="250")
+        menu = tuple(MenuItem(meal, dish) for meal in ("Breakfast", "Lunch", "Dinner"))
         result = test_optimizer(
-            portion_guidance={"only": PortionGuidance(2, 3)}
-        ).optimize((MenuItem("Breakfast", food("only", "Only available food", "15")),))
+            portion_guidance={"only": PortionGuidance(1, 2)},
+            portion_limits={"only": PortionLimits(2, 6)},
+        ).optimize(menu)
         self.assertEqual(result.status, PlanStatus.FEASIBLE)
-        self.assertTrue(any("Only available food is" in w and "standard servings/day" in w for w in result.warnings))
-        self.assertTrue(any("Only available food is" in w and "in Breakfast" in w for w in result.warnings))
+        self.assertLessEqual(sum(p.servings for p in result.portions), 6)
+        self.assertLessEqual(max(p.servings for p in result.portions), 2)
+        self.assertTrue(any("Only available food is" in w and "soft guide 2; hard limit 6" in w for w in result.warnings))
         self.assertLessEqual(result.totals.calories_kcal, Decimal("2000"))
 
-    def test_milk_alias_guidance_warns_without_creating_a_hard_cap(self):
-        milk = food("hot_milk", "Hot milk", "20")
-        result = test_optimizer().optimize((MenuItem("Breakfast", milk),))
+    def test_milk_aliases_obey_combined_hard_daily_and_meal_limits(self):
+        menu = test_menu()
+        hot = food("hot_milk", "Hot milk", "20")
+        cold = food("cold_milk", "Cold milk", "20")
+        menu = menu + (MenuItem("Breakfast", hot), MenuItem("Lunch", cold))
+        result = test_optimizer().optimize(menu)
         self.assertEqual(result.status, PlanStatus.FEASIBLE)
-        self.assertGreater(sum(p.servings for p in result.portions), 2)
-        self.assertTrue(any("milk drinks total" in warning and "no hard cap applied" in warning for warning in result.warnings))
+        milk_portions = [p for p in result.portions if p.food_key in {"hot_milk", "cold_milk"}]
+        self.assertLessEqual(sum(p.servings for p in milk_portions), 2)
+        self.assertTrue(all(p.servings <= 1 for p in milk_portions))
 
     def test_variety_and_meal_balance_are_soft_objectives(self):
         result = test_optimizer().optimize(test_menu())
@@ -191,10 +214,13 @@ class OptimizerBehaviorTests(unittest.TestCase):
         selected_foods = {p.food_key for p in result.portions}
         self.assertGreaterEqual(len(selected_foods), 2)
         self.assertIn("meal_distribution", objectives)
+        self.assertIn("protein_distribution", objectives)
         self.assertIn("portion_guidance", objectives)
         self.assertIn("food_variety", objectives)
         self.assertIn("optional_protein_stretch", objectives)
         self.assertEqual(sum(value for _, value in result.meal_calories_kcal), result.totals.calories_kcal)
+        self.assertEqual(sum(value for _, value in result.meal_protein_g), result.totals.protein_g)
+        self.assertEqual(validate_optimization_result(result), ())
 
     def test_soya_is_minimized_and_added_only_if_needed(self):
         sufficient = test_optimizer().optimize(test_menu("20"))
@@ -213,8 +239,11 @@ class OptimizerBehaviorTests(unittest.TestCase):
         )
         result = test_optimizer().optimize(low_protein)
         self.assertLessEqual(result.soya_dry_grams, Decimal("70"))
-        self.assertEqual(result.soya_dry_grams, Decimal("70"))
-        self.assertEqual(result.totals.calories_kcal, Decimal("1853.2"))
+        self.assertGreaterEqual(result.totals.calories_kcal, Decimal("1800"))
+        self.assertEqual(result.status, PlanStatus.PROTEIN_SHORTFALL)
+        self.assertGreater(result.protein_shortfall_g, Decimal("0"))
+        self.assertGreaterEqual(result.totals.calories_kcal, Decimal("1800"))
+        self.assertLessEqual(result.totals.calories_kcal, Decimal("2000"))
 
     def test_independent_macro_recalculation_and_soft_preferences_are_exposed(self):
         result = test_optimizer().optimize(test_menu())
@@ -235,12 +264,43 @@ class OptimizerBehaviorTests(unittest.TestCase):
         self.assertFalse(low_result.portions)
         self.assertIn("below safety threshold", low_result.excluded_items[0][2])
 
+    def test_missing_dinner_is_explicit_and_plan_is_not_valid(self):
+        result = test_optimizer().optimize((MenuItem("Breakfast", food("only", "Known breakfast", "20")),))
+        dinner = next(item for item in result.meal_coverage if item.meal == "Dinner")
+        self.assertFalse(dinner.available)
+        self.assertIn("No menu items were published", dinner.reason)
+        self.assertEqual(result.status, PlanStatus.INFEASIBLE)
+        self.assertFalse(result.is_valid_target_plan)
+
+    def test_curds_hard_food_limits_reject_twenty_one_bowls(self):
+        result = DietOptimizer(profile=SYNTHETIC_PROFILE).optimize(actual_menu())
+        self.assertLessEqual(sum(p.servings for p in result.portions if p.food_key == "curd"), 2)
+        oversized = SelectedPortion(
+            "Lunch", "curd", "Curd", 21, Decimal("100"), Decimal("2100"), Decimal("0.62")
+        )
+        forged = replace(
+            result,
+            portions=tuple(p for p in result.portions if p.food_key != "curd") + (oversized,),
+        )
+        errors = validate_optimization_result(forged)
+        self.assertTrue(any("curd exceeds its hard daily portion limit" in error for error in errors))
+        self.assertTrue(any("Lunch/curd exceeds its hard per-meal portion limit" in error for error in errors))
+
+    def test_validator_rejects_food_missing_from_menu_inventory(self):
+        result = DietOptimizer(profile=SYNTHETIC_PROFILE).optimize(actual_menu())
+        fabricated = SelectedPortion(
+            "Dinner", "invented_food", "Invented Food", 1, Decimal("100"), Decimal("100"), Decimal("0.9")
+        )
+        errors = validate_optimization_result(replace(result, portions=result.portions + (fabricated,)))
+        self.assertTrue(any("not an eligible item in the supplied menu" in error for error in errors))
+
     def test_unfeasible_inventory_and_protein_shortfall_are_reported_honestly(self):
         empty = test_optimizer().optimize(())
         self.assertEqual(empty.status, PlanStatus.INFEASIBLE)
         self.assertFalse(empty.is_valid_target_plan)
-        self.assertIn("No plan met", empty.message)
-        low_protein = (MenuItem("Breakfast", food("weak", "Low-protein dish", "1", calories="250")),)
+        self.assertIn("No complete Breakfast/Lunch/Dinner plan", empty.message)
+        low_food = food("weak", "Low-protein dish", "1", calories="600")
+        low_protein = tuple(MenuItem(meal, low_food) for meal in ("Breakfast", "Lunch", "Dinner"))
         shortfall = test_optimizer().optimize(low_protein)
         self.assertEqual(shortfall.status, PlanStatus.PROTEIN_SHORTFALL)
         self.assertLess(shortfall.totals.protein_g, Decimal("120"))
@@ -264,6 +324,7 @@ class ActualMenuOptimizerTests(unittest.TestCase):
         self.assertGreaterEqual(result.totals.calories_kcal, Decimal("1800"))
         self.assertLessEqual(result.totals.calories_kcal, Decimal("2000"))
         self.assertTrue(result.warnings)  # unavailable/low-confidence items and/or portion advice are explicit
+        self.assertEqual(validate_optimization_result(result), ())
 
     def test_actual_menu_report_discloses_sections_macros_preferences_and_exclusions(self):
         output = render_optimization(self.snapshot_path, profile=SYNTHETIC_PROFILE)
@@ -274,7 +335,7 @@ class ActualMenuOptimizerTests(unittest.TestCase):
         self.assertIn("Dinner:", output)
         self.assertIn("Meal nutrition (including supplements)", output)
         self.assertIn("Soft-preference deviations:", output)
-        self.assertIn("Warnings and portion guidance", output)
+        self.assertIn("Warnings and serving guidance", output)
         self.assertIn("Excluded menu items:", output)
         self.assertIn("Plant protein isolate: exactly 1 scoop", output)
 

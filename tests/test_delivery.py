@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +15,7 @@ from urllib.error import HTTPError
 
 from messmate_delivery.adapters import MockWhatsAppAdapter, WhatsAppCloudAPIAdapter
 from messmate_delivery.errors import (
-    LiveSendingDisabled, PermanentChannelRejection, RetryableChannelRejection,
+    LiveSendingDisabled, PermanentChannelRejection, PlanNotDeliverable, RetryableChannelRejection,
     RetryableWhatsAppRejection, UncertainChannelSend, UncertainWhatsAppSend,
 )
 from messmate_delivery.formatter import render_plan_message
@@ -22,7 +23,7 @@ from messmate_delivery.models import DeliveryIdentity, DeliveryStatus
 from messmate_delivery.service import DietPlanDeliveryService
 from messmate_delivery.store import SQLiteDeliveryStore
 from messmate_delivery.telegram_adapter import TelegramBotAPIAdapter
-from messmate_nutrition.optimizer import DietOptimizer, UserNutritionProfile, menu_items_from_snapshot
+from messmate_nutrition.optimizer import DietOptimizer, PlanStatus, UserNutritionProfile, menu_items_from_snapshot
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +76,21 @@ class DeliveryTests(unittest.TestCase):
         repeated = live_controlled.deliver("+15551234567", date(2026, 11, 6), result)
         self.assertFalse(repeated.sent)
         self.assertEqual(len(mock.calls), 1)
+
+    def test_invalid_optimization_result_never_reaches_delivery_adapter(self):
+        result = replace(actual_nov6_result(), status=PlanStatus.INFEASIBLE)
+        store = SQLiteDeliveryStore()
+        adapter = MockWhatsAppAdapter()
+        service = DietPlanDeliveryService(
+            store, adapter, dry_run=False, live_send_enabled=True, channel="whatsapp"
+        )
+        recipient = "+15551234567"
+        plan_date = date(2026, 11, 6)
+        with self.assertRaises(PlanNotDeliverable):
+            service.deliver(recipient, plan_date, result)
+        self.assertEqual(adapter.calls, [])
+        identity = DeliveryIdentity.for_recipient(recipient, plan_date, channel="whatsapp")
+        self.assertIsNone(store.get(identity))
 
     def test_atomic_claim_allows_exactly_one_concurrent_sender(self):
         store = SQLiteDeliveryStore()
