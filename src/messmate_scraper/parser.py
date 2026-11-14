@@ -31,6 +31,10 @@ _SELECTED_DAY_RE = re.compile(
 )
 _TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}", re.IGNORECASE)
 _FEEDBACK_RE = re.compile(r"^give feedback$", re.IGNORECASE)
+_CAMPUS_NOTICE_RE = re.compile(
+    r"\s+As the strength of the learners on the campus is significantly reduced\b.*$",
+    re.IGNORECASE,
+)
 
 
 def _normalise_text(value: str) -> str:
@@ -124,7 +128,14 @@ def extract_meal_items(body_text: str, meal: MealName) -> MealSection:
         # preserve those lines as entries. A lone line remains one exact item.
         candidates = [line.strip() for line in content_lines]
 
-    items = tuple(item.strip(" \t\n-•·★") for item in candidates if item.strip(" \t\n-•·★"))
+    # The portal may append its temporary campus notice directly to the last
+    # menu item in accessible text. Remove only this known notice prefix so
+    # that an otherwise exact catalog item (for example, Chapati) survives.
+    items = tuple(
+        cleaned.strip(" \t\n-•·★")
+        for item in candidates
+        if (cleaned := _CAMPUS_NOTICE_RE.split(item, maxsplit=1)[0].strip(" \t\n-•·★"))
+    )
     if not items:
         raise MenuNotPublishedError(f"No parseable menu items found for {meal}")
     return MealSection(name=meal, items=items, raw_text=raw_text)

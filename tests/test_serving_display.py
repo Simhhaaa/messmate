@@ -35,6 +35,14 @@ class HouseholdServingDisplayTests(unittest.TestCase):
         self.assertIn("1 medium bowl", rendered)
         self.assertIn("estimated 180 g total", rendered)
 
+    def test_usda_cooked_rice_and_fries_use_documented_serving_weights(self):
+        self.assertEqual(DEFAULT_HOUSEHOLD_SERVINGS["steamed_rice"].grams_per_unit, Decimal("185"))
+        self.assertEqual(DEFAULT_HOUSEHOLD_SERVINGS["french_fries"].grams_per_unit, Decimal("117"))
+        self.assertEqual(
+            format_selected_portion(portion("steamed_rice", "Steamed Rice", 1, "185")),
+            "1 cooked cup (estimated 185 g total; cooked weight; USDA SR28 measure; about 185 g per configured unit)",
+        )
+
     def test_configurable_household_weight_changes_display_only(self):
         item = portion("chapati", "Chapati", 2, "40")
         custom = {"chapati": HouseholdServing("small chapati", "small chapatis", Decimal("35"), "cooked weight")}

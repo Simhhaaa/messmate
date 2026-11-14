@@ -9,6 +9,7 @@ import unittest
 from messmate_app.config import RunConfigurationError, resolve_channel, resolve_run_mode, resolve_target_date
 from messmate_app.daily import run_daily_pipeline
 from messmate_delivery.adapters import MockWhatsAppAdapter
+from messmate_delivery.errors import PlanNotDeliverable
 from messmate_delivery.models import DeliveryStatus
 from messmate_delivery.store import SQLiteDeliveryStore
 from messmate_nutrition.optimizer import UserNutritionProfile
@@ -19,6 +20,7 @@ from messmate_scraper.models import DailyMenu, MealSection
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/daily-messmate.yml"
 SNAPSHOT = ROOT / "tests/fixtures/nov6_menu_fixture.json"
+NOV7_SNAPSHOT = ROOT / "tests/fixtures/nov7_menu_fixture.json"
 SYNTHETIC_PROFILE = UserNutritionProfile(
     Decimal("170"), Decimal("65"), "Synthetic unit-test profile"
 )
@@ -157,6 +159,44 @@ class DailyPipelineSafetyTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("Protein:", report)
             self.assertNotIn("Chole", report)
             self.assertNotIn("kcal", report)
+
+    async def test_nov7_infeasible_menu_report_contains_safe_reason_and_blocks_delivery(self):
+        source = json.loads(NOV7_SNAPSHOT.read_text(encoding="utf-8"))
+        plan_date = date.fromisoformat(source["requested_date"])
+        meals = tuple(MealSection(name=name, items=tuple(section["items"]), raw_text="")
+                      for name, section in source["meals"].items())
+        menu = DailyMenu(
+            plan_date, date.fromisoformat(source["portal_today"]),
+            datetime.fromisoformat(source["fetched_at"]), "https://ru-print.vercel.app/",
+            meals, str(NOV7_SNAPSHOT),
+        )
+
+        class FakeScraper:
+            async def scrape(self, _target):
+                return menu
+
+        store = SQLiteDeliveryStore()
+        adapter = MockWhatsAppAdapter()
+        with TemporaryDirectory() as temporary:
+            report_path = Path(temporary) / "messmate-diet-2026-11-07.txt"
+            with self.assertRaises(PlanNotDeliverable) as caught:
+                await run_daily_pipeline(
+                    target_date=plan_date, mode=resolve_run_mode({}),
+                    recipient="+15551234567", report_dir=Path(temporary),
+                    scraper=FakeScraper(), store=store, adapter=adapter,
+                    profile=SYNTHETIC_PROFILE,
+                )
+            contents = report_path.read_text(encoding="utf-8")
+            self.assertEqual(caught.exception.safe_reason, contents.split("Validation: ", 1)[1].strip())
+            self.assertIn("Stage: optimization validation", contents)
+            self.assertIn("failed_constraints=", contents)
+            self.assertIn("eligible_menu_items=Breakfast:2,Lunch:3,Dinner:2", contents)
+            self.assertIn("calories_kcal=1807.20", contents)
+            self.assertIn("protein_g=93.2595", contents)
+            self.assertIn("protein_minimum", contents)
+            self.assertNotIn("Menthi Dal Tadka", contents)
+            self.assertNotIn("+15551234567", contents)
+            self.assertEqual(adapter.calls, [])
 
     async def test_invalid_live_mode_stops_before_scraping_or_sending(self):
         class NeverScrape:

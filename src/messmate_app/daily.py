@@ -19,7 +19,8 @@ from messmate_delivery.neon_store import NeonDeliveryStore
 from messmate_delivery.service import DietPlanDeliveryService
 from messmate_delivery.telegram_adapter import TelegramBotAPIAdapter
 from messmate_nutrition.optimizer import (
-    DietOptimizer, UserNutritionProfile, menu_items_from_snapshot, validate_optimization_result,
+    DietOptimizer, UserNutritionProfile, menu_items_from_snapshot,
+    summarize_validation_failure, validate_optimization_result,
 )
 from messmate_nutrition.profile_config import load_user_profile
 from messmate_scraper.models import DailyMenu, RetryPolicy
@@ -96,11 +97,10 @@ async def run_daily_pipeline(
         stage = "optimize"
         snapshot = _snapshot_for_menu(menu)
         result = DietOptimizer(profile=profile).optimize(menu_items_from_snapshot(snapshot))
-        if validate_optimization_result(result):
+        validation_errors = validate_optimization_result(result)
+        if validation_errors:
             stage = "optimization validation"
-            raise PlanNotDeliverable(
-                "Optimization result failed complete-plan validation; delivery and persistence were skipped."
-            )
+            raise PlanNotDeliverable(summarize_validation_failure(result, validation_errors))
 
         stage = "database"
         store = store or NeonDeliveryStore()
@@ -140,10 +140,14 @@ async def run_daily_pipeline(
         # information or request data in those strings.
         logger.error("Daily run failed stage=%s error_type=%s", stage, type(exc).__name__)
         try:
-            _write_report(
-                report_path,
-                f"MESSMATE run failed\nPlan date: {target_date.isoformat()}\nStage: {stage}\nError type: {type(exc).__name__}",
+            safe_reason = exc.safe_reason if isinstance(exc, PlanNotDeliverable) else None
+            report = (
+                f"MESSMATE run failed\nPlan date: {target_date.isoformat()}\n"
+                f"Stage: {stage}\nError type: {type(exc).__name__}"
             )
+            if safe_reason:
+                report += f"\nValidation: {safe_reason}"
+            _write_report(report_path, report)
         except OSError:
             logger.error("Could not write failure report")
         raise

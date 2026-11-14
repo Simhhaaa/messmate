@@ -87,6 +87,15 @@ class ParserTests(unittest.TestCase):
             ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         )
 
+    def test_trailing_campus_notice_does_not_corrupt_last_menu_item(self) -> None:
+        body = """Dinner
+07:30 - 09:30 PM
+★ Chole Masala ★ Chapati As the strength of the learners on the campus is significantly reduced during the Diwali break, meals will be served in the A Block Dining Hall only from tomorrow till 13th November 2026.
+Give Feedback
+Made with love"""
+        section = extract_meal_items(body, "Dinner")
+        self.assertEqual(section.items, ("Chole Masala", "Chapati"))
+
     def test_missing_or_empty_section_fails_closed(self) -> None:
         with self.assertRaises(PortalStructureError):
             extract_meal_items("TODAY THU, 05 NOV\nLunch\nitems", "Breakfast")

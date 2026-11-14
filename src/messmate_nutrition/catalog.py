@@ -17,6 +17,18 @@ _RECIPE = SourceReference(
     url="https://fdc.nal.usda.gov/",
     note="Heuristic estimate informed by typical generic ingredient composition; not a direct USDA prepared-dish record or a verified mess recipe. Ingredient proportions and cooking fat need validation.",
 )
+_USDA_SR28_RICE = SourceReference(
+    name="USDA National Nutrient Database for Standard Reference, Release 28",
+    url="https://www.ars.usda.gov/ARSUserFiles/80400535/Data/SR/SR28/reports/sr28fg20.pdf",
+    reference_id="NDB 20445",
+    note="Rice, white, long-grain, regular, unenriched, cooked without salt; nutrients per 100 g; USDA common measure 1 cup = 185 g.",
+)
+_USDA_SR28_FRIES = SourceReference(
+    name="USDA National Nutrient Database for Standard Reference, Release 28",
+    url="https://www.ars.usda.gov/ARSUserFiles/80400535/Data/SR/SR28/reports/sr28fg21.pdf",
+    reference_id="NDB 21138",
+    note="Fast foods, potato, french fried in vegetable oil; nutrients per 100 g; USDA common medium serving = 117 g. Mess preparation/oil may differ.",
+)
 
 
 def _m(kcal: str, protein: str, carbs: str, fat: str) -> MacroNutrients:
@@ -30,7 +42,7 @@ def _serving(label: str, typical: str, low: str, high: str, basis: str) -> Servi
 def _food(key: str, name: str, category: FoodCategory, macros: tuple[str, str, str, str] | None,
           serving: tuple[str, str, str, str, str] | None, confidence: str,
           aliases: tuple[str, ...] = (), recipe: str | None = None, components: tuple[str, ...] = (),
-          unknown_reason: str = "") -> FoodRecord:
+          unknown_reason: str = "", source_override: SourceReference | None = None) -> FoodRecord:
     known = macros is not None
     return FoodRecord(
         key=key, display_name=name, category=category,
@@ -38,7 +50,7 @@ def _food(key: str, name: str, category: FoodCategory, macros: tuple[str, str, s
         nutrition_per_100g=_m(*macros) if macros else None,
         serving=_serving(*serving) if serving else None,
         confidence=Decimal(confidence),
-        source=(SourceReference("USDA FoodData Central SR Legacy: Bananas, raw", "https://fdc.nal.usda.gov/food-details/173944/nutrients", "173944", "Per 100 g raw edible portion.") if key == "banana" else (_FDC if known and category in {FoodCategory.INGREDIENT, FoodCategory.WHOLE_FOOD} else (_RECIPE if known else None))),
+        source=(source_override or (SourceReference("USDA FoodData Central SR Legacy: Bananas, raw", "https://fdc.nal.usda.gov/food-details/173944/nutrients", "173944", "Per 100 g raw edible portion.") if key == "banana" else (_FDC if known and category in {FoodCategory.INGREDIENT, FoodCategory.WHOLE_FOOD} else (_RECIPE if known else None)))),
         recipe=RecipeAssumption(recipe, components) if recipe else None,
         review_required=not known,
         notes=unknown_reason,
@@ -71,6 +83,18 @@ _RECORDS = [
     _food("chole_masala", "Chole Masala", FoodCategory.COMPLETE_DISH, ("145", "7.0", "20.0", "4.0"), ("1 katori", "180", "130", "250", "Cooked chickpea curry; gravy/oil vary"), "0.55", ("chole", "chana masala"), "Cooked chickpeas in onion/tomato gravy with modest oil.", ("chickpeas", "onion/tomato", "cooking oil", "spices")),
     _food("jeera_aloo", "Jeera Aloo", FoodCategory.COMPLETE_DISH, ("135", "2.5", "21.0", "4.5"), ("1 katori", "150", "100", "220", "Cooked potato side; oil varies"), "0.48", recipe="Cooked potato tossed with cumin and modest oil.", components=("potato", "cumin", "cooking oil")),
     _food("rasam", "Rasam", FoodCategory.COMPLETE_DISH, ("35", "1.5", "5.0", "1.0"), ("1 bowl", "180", "120", "250", "Thin soup; lentil content varies"), "0.42", recipe="Thin tamarind/tomato broth with spices and a small tempering; diluted recipe assumed.", components=("tomato/tamarind", "spices", "small amount of lentil", "tempering")),
+    _food("steamed_rice", "Steamed Rice", FoodCategory.COMPLETE_DISH,
+          ("130", "2.69", "28.17", "0.28"),
+          ("1 cooked cup", "185", "150", "220", "USDA SR28 common measure; cooked weight"),
+          "0.52", ("plain steamed rice", "cooked white rice"),
+          recipe="Generic plain long-grain white rice cooked in water without added salt or oil; local variety and water uptake may differ.",
+          components=("white rice", "water"), source_override=_USDA_SR28_RICE),
+    _food("french_fries", "French Fries", FoodCategory.COMPLETE_DISH,
+          ("312", "3.43", "41.44", "14.73"),
+          ("1 medium serving", "117", "71", "154", "USDA SR28 common measures; prepared weight"),
+          "0.52", ("french-fried potato",),
+          recipe="Generic potato strips fried in vegetable oil; oil uptake and cut vary by preparation.",
+          components=("potato", "vegetable oil"), source_override=_USDA_SR28_FRIES),
 ]
 
 CATALOG: dict[str, FoodRecord] = {record.key: record for record in _RECORDS}

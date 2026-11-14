@@ -40,6 +40,23 @@ class CatalogTests(unittest.TestCase):
         missing = [name for section in snapshot["meals"].values() for name in section["items"] if lookup_food(name) is None]
         self.assertEqual(missing, [])
 
+    def test_nov7_plain_rice_and_french_fries_use_documented_usda_records(self):
+        rice = lookup_food("Steamed Rice")
+        fries = lookup_food("French Fries")
+        self.assertIsNotNone(rice)
+        self.assertIsNotNone(fries)
+        assert rice is not None and fries is not None
+        self.assertEqual(rice.confidence, Decimal("0.52"))
+        self.assertEqual(rice.source.reference_id, "NDB 20445")
+        self.assertEqual(rice.serving.grams, Decimal("185"))
+        self.assertEqual(rice.nutrition_per_100g.calories_kcal, Decimal("130"))
+        self.assertEqual(rice.nutrition_per_100g.protein_g, Decimal("2.69"))
+        self.assertEqual(fries.confidence, Decimal("0.52"))
+        self.assertEqual(fries.source.reference_id, "NDB 21138")
+        self.assertEqual(fries.serving.grams, Decimal("117"))
+        self.assertEqual(fries.nutrition_per_100g.calories_kcal, Decimal("312"))
+        self.assertEqual(fries.nutrition_per_100g.protein_g, Decimal("3.43"))
+
     def test_normalization_is_case_and_punctuation_insensitive(self):
         self.assertEqual(normalize_name("  Paneer Do-Pyaza! "), "paneer do pyaza")
         self.assertIs(lookup_food("PANEER DO PYAZA"), CATALOG["paneer_do_pyaza"])

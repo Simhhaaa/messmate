@@ -12,6 +12,10 @@ class LiveSendingDisabled(DeliveryError):
 class PlanNotDeliverable(DeliveryError):
     """The optimization result failed complete-plan safety validation."""
 
+    def __init__(self, safe_reason: str = "plan_validation_failed") -> None:
+        self.safe_reason = safe_reason
+        super().__init__(safe_reason)
+
 
 class DeliveryLeaseLost(DeliveryError):
     pass

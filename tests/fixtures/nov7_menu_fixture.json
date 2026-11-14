@@ -1,0 +1,12 @@
+{
+  "fixture_notice": "Sanitized menu-only fixture from the November 7 live scrape after campus-notice parsing; no raw HTML, profile, or delivery data.",
+  "requested_date": "2026-11-07",
+  "portal_today": "2026-11-07",
+  "fetched_at": "2026-11-07T00:00:00+05:30",
+  "meals": {
+    "Breakfast": {"items": ["Mix Fruit", "Dalia", "Chocos", "Veg Maggi", "Ketchup", "Hot Milk (D)", "Cold Milk (D)", "Tea (D)", "Coffee Powder", "Bread/Butter/Jam"]},
+    "Lunch": {"items": ["Mix Yellow Dal", "Lauki Kofta Curry", "Bendakai Koora", "Curd", "Green Salad", "Steamed Rice", "Chapati"]},
+    "Snacks": {"items": ["French Fries", "Hot Coffee", "Ketchup", "Tea (D)", "Coffee Powder"]},
+    "Dinner": {"items": ["Menthi Dal Tadka", "Gobi Aloo", "Palakura Pappu", "Ice Cream", "Cucumber Carrot Salad", "Steamed Rice", "Chapati"]}
+  }
+}

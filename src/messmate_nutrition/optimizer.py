@@ -194,6 +194,8 @@ DEFAULT_PORTION_LIMITS: dict[str, PortionLimits] = {
     "chole_masala": PortionLimits(1, 2),
     "jeera_aloo": PortionLimits(1, 2),
     "rasam": PortionLimits(2, 3),
+    "steamed_rice": PortionLimits(2, 3),
+    "french_fries": PortionLimits(1, 1),
 }
 
 REQUIRED_MEALS = ("Breakfast", "Lunch", "Dinner")
@@ -1316,3 +1318,94 @@ def validate_optimization_result(result: OptimizationResult) -> tuple[str, ...]:
     if dict(result.meal_protein_g) != meal_protein:
         errors.append("Reported meal protein does not match independent recalculation.")
     return tuple(dict.fromkeys(errors))
+
+
+def summarize_validation_failure(
+    result: OptimizationResult, errors: Sequence[str] | None = None,
+) -> str:
+    """Return a compact failure summary without menu text or profile data.
+
+    Validation messages can contain scraped food names. Reports therefore use
+    stable constraint labels and aggregates only.
+    """
+    errors = tuple(errors if errors is not None else validate_optimization_result(result))
+    labels: set[str] = set()
+    for error in errors:
+        lowered = error.casefold()
+        if "status is" in lowered:
+            labels.add("plan_status")
+        if "unavailable:" in lowered or "has no selected mess food" in lowered:
+            labels.add("required_meal_coverage")
+        if "eligible item in the supplied menu" in lowered:
+            labels.add("menu_inventory")
+        if "hard daily portion limit" in lowered:
+            labels.add("daily_portion_limit")
+        if "hard per-meal portion limit" in lowered:
+            labels.add("meal_portion_limit")
+        if "hard portion limit" in lowered:
+            labels.add("portion_limit_configuration")
+        if "serving identity or weight" in lowered:
+            labels.add("serving_identity")
+        if "plant protein isolate" in lowered:
+            labels.add("fixed_supplement")
+        if "soya" in lowered:
+            labels.add("soya_limit")
+        if "macros do not match" in lowered or "meal calories do not match" in lowered or "meal protein does not match" in lowered:
+            labels.add("macro_consistency")
+        if "calories are outside" in lowered:
+            labels.add("calorie_range")
+        if "protein is below" in lowered:
+            labels.add("protein_minimum")
+        if not labels:
+            labels.add("validation_invariant")
+
+    context = result.validation_context
+    parts = ["failed_constraints=" + ",".join(sorted(labels))]
+    if context is None:
+        parts.append("validation_context=missing")
+        return "; ".join(parts)
+
+    coverage = {entry.meal: entry.available for entry in result.meal_coverage}
+    parts.append("meal_coverage=" + ",".join(
+        f"{meal}:{'available' if coverage.get(meal, False) else 'unavailable'}"
+        for meal in context.required_meals
+    ))
+    limits = dict(context.portion_limits)
+    eligible_counts = {meal: 0 for meal in context.required_meals}
+    for item in context.menu_inventory:
+        food = item.food
+        if (item.meal in eligible_counts and food.nutrition_per_100g is not None
+                and food.confidence >= context.minimum_confidence
+                and food.serving is not None and food.key in limits):
+            eligible_counts[item.meal] += 1
+    parts.append("eligible_menu_items=" + ",".join(
+        f"{meal}:{eligible_counts[meal]}" for meal in context.required_meals
+    ))
+    targets = context.targets
+    parts.append(
+        f"calories_kcal={result.totals.calories_kcal} "
+        f"(allowed {targets.minimum_calories_kcal}-{targets.maximum_calories_kcal}); "
+        f"protein_g={result.totals.protein_g} (minimum {targets.minimum_protein_g})"
+    )
+
+    exclusion_counts: dict[str, int] = {}
+    for _, _, reason in result.excluded_items:
+        lowered = reason.casefold()
+        if "no exact curated catalog match" in lowered:
+            key = "unmapped_catalog"
+        elif "below safety threshold" in lowered:
+            key = "below_confidence"
+        elif "no serving weight" in lowered:
+            key = "missing_serving_weight"
+        elif "no food-specific safe serving limit" in lowered:
+            key = "missing_portion_limit"
+        elif "nutrition unavailable" in lowered or "no nutrition assigned" in lowered or "no macro value" in lowered:
+            key = "nutrition_unavailable"
+        else:
+            key = "other_exclusion"
+        exclusion_counts[key] = exclusion_counts.get(key, 0) + 1
+    if exclusion_counts:
+        parts.append("excluded_items=" + ",".join(
+            f"{key}:{exclusion_counts[key]}" for key in sorted(exclusion_counts)
+        ))
+    return "; ".join(parts)

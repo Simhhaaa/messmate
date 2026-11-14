@@ -55,6 +55,8 @@ DEFAULT_HOUSEHOLD_SERVINGS: dict[str, HouseholdServing] = {
     "chole_masala": HouseholdServing("medium bowl", "medium bowls", Decimal("180"), "cooked weight"),
     "jeera_aloo": HouseholdServing("small bowl", "small bowls", Decimal("150"), "cooked weight"),
     "rasam": HouseholdServing("medium bowl", "medium bowls", Decimal("180"), "prepared weight"),
+    "steamed_rice": HouseholdServing("cooked cup", "cooked cups", Decimal("185"), "cooked weight; USDA SR28 measure"),
+    "french_fries": HouseholdServing("medium serving", "medium servings", Decimal("117"), "prepared weight; USDA SR28 measure"),
 }
 
 

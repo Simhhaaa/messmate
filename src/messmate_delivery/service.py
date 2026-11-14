@@ -14,7 +14,7 @@ from .errors import (
 )
 from .formatter import render_plan_message
 from .models import DeliveryIdentity, DeliveryOutcome, DeliveryStatus
-from messmate_nutrition.optimizer import validate_optimization_result
+from messmate_nutrition.optimizer import summarize_validation_failure, validate_optimization_result
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,10 @@ class DietPlanDeliveryService:
         self.channel = channel
 
     def deliver(self, recipient: str, plan_date: date, optimization_result) -> DeliveryOutcome:
-        if validate_optimization_result(optimization_result):
+        validation_errors = validate_optimization_result(optimization_result)
+        if validation_errors:
             raise PlanNotDeliverable(
-                "Optimization result failed complete-plan validation; no delivery was prepared."
+                summarize_validation_failure(optimization_result, validation_errors)
             )
         message = render_plan_message(plan_date, optimization_result)
         identity = DeliveryIdentity.for_recipient(recipient, plan_date, channel=self.channel)

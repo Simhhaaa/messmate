@@ -24,6 +24,7 @@ from messmate_nutrition.optimizer import (
     SupplementProfile,
     UserNutritionProfile,
     menu_items_from_snapshot,
+    summarize_validation_failure,
     validate_optimization_result,
 )
 from messmate_nutrition.optimizer_demo import render_optimization
@@ -285,6 +286,26 @@ class OptimizerBehaviorTests(unittest.TestCase):
         errors = validate_optimization_result(forged)
         self.assertTrue(any("curd exceeds its hard daily portion limit" in error for error in errors))
         self.assertTrue(any("Lunch/curd exceeds its hard per-meal portion limit" in error for error in errors))
+
+    def test_nov7_live_menu_failure_summary_is_actionable_and_sanitized(self):
+        source = json.loads(Path("tests/fixtures/nov7_menu_fixture.json").read_text(encoding="utf-8"))
+        result = DietOptimizer(profile=SYNTHETIC_PROFILE).optimize(menu_items_from_snapshot(source))
+        errors = validate_optimization_result(result)
+        summary = summarize_validation_failure(result, errors)
+
+        self.assertEqual(result.status, PlanStatus.PROTEIN_SHORTFALL)
+        self.assertIn("plan_status", summary)
+        self.assertIn("protein_minimum", summary)
+        self.assertIn("meal_coverage=Breakfast:available,Lunch:available,Dinner:available", summary)
+        self.assertIn("eligible_menu_items=Breakfast:2,Lunch:3,Dinner:2", summary)
+        self.assertIn("calories_kcal=1807.20", summary)
+        self.assertIn("protein_g=93.2595", summary)
+        self.assertIn("unmapped_catalog:12", summary)
+        self.assertEqual(sum(p.servings for p in result.portions if p.food_key == "steamed_rice"), 3)
+        self.assertEqual(result.soya_dry_grams, Decimal("70"))
+        self.assertLess(result.totals.protein_g, Decimal("120"))
+        self.assertNotIn("Menthi Dal Tadka", summary)
+        self.assertNotIn("As the strength of the learners", summary)
 
     def test_validator_rejects_food_missing_from_menu_inventory(self):
         result = DietOptimizer(profile=SYNTHETIC_PROFILE).optimize(actual_menu())
