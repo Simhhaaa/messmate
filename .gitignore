@@ -28,3 +28,6 @@ reports/
 *.sqlite-shm
 *.tmp
 *.log
+
+# Local research outputs (web candidates, evidence database, scraped data)
+data/
