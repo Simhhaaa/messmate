@@ -190,7 +190,7 @@ class DailyPipelineSafetyTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(caught.exception.safe_reason, contents.split("Validation: ", 1)[1].strip())
             self.assertIn("Stage: optimization validation", contents)
             self.assertIn("failed_constraints=", contents)
-            self.assertIn("eligible_menu_items=Breakfast:2,Lunch:3,Dinner:2", contents)
+            self.assertIn("eligible_menu_items=Breakfast:2,Lunch:4,Dinner:4", contents)
             self.assertIn("calories_kcal=1807.20", contents)
             self.assertIn("protein_g=93.2595", contents)
             self.assertIn("protein_minimum", contents)

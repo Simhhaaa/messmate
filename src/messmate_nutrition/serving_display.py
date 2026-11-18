@@ -57,6 +57,12 @@ DEFAULT_HOUSEHOLD_SERVINGS: dict[str, HouseholdServing] = {
     "rasam": HouseholdServing("medium bowl", "medium bowls", Decimal("180"), "prepared weight"),
     "steamed_rice": HouseholdServing("cooked cup", "cooked cups", Decimal("185"), "cooked weight; USDA SR28 measure"),
     "french_fries": HouseholdServing("medium serving", "medium servings", Decimal("117"), "prepared weight; USDA SR28 measure"),
+    "mix_yellow_dal": HouseholdServing("medium katori", "medium katoris", Decimal("180"), "cooked weight; estimated average"),
+    "menthi_dal_tadka": HouseholdServing("medium katori", "medium katoris", Decimal("180"), "cooked weight; estimated average"),
+    "palakura_pappu": HouseholdServing("medium katori", "medium katoris", Decimal("180"), "cooked weight; estimated average"),
+    "panchratna_dal": HouseholdServing("medium katori", "medium katoris", Decimal("180"), "cooked weight; estimated average"),
+    "pappu_charu": HouseholdServing("medium bowl", "medium bowls", Decimal("180"), "prepared weight; estimated average"),
+    "dhaba_dal": HouseholdServing("medium katori", "medium katoris", Decimal("180"), "cooked weight; estimated average"),
 }
 
 

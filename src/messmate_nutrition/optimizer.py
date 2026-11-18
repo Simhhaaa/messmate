@@ -6,7 +6,7 @@ recalculated independently with Decimal arithmetic before it is returned.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, ROUND_HALF_UP
 from enum import StrEnum
 from typing import Mapping, Sequence
@@ -196,6 +196,13 @@ DEFAULT_PORTION_LIMITS: dict[str, PortionLimits] = {
     "rasam": PortionLimits(2, 3),
     "steamed_rice": PortionLimits(2, 3),
     "french_fries": PortionLimits(1, 1),
+    # Estimated-tier hostel-mess dals (see catalog._ESTIMATE).
+    "mix_yellow_dal": PortionLimits(2, 3),
+    "menthi_dal_tadka": PortionLimits(2, 3),
+    "palakura_pappu": PortionLimits(2, 3),
+    "panchratna_dal": PortionLimits(2, 3),
+    "pappu_charu": PortionLimits(2, 3),
+    "dhaba_dal": PortionLimits(2, 3),
 }
 
 REQUIRED_MEALS = ("Breakfast", "Lunch", "Dinner")
@@ -459,6 +466,15 @@ class DietOptimizer:
             coverage_complete = all(item.available for item in coverage)
             status = PlanStatus.FEASIBLE if coverage_complete else PlanStatus.INFEASIBLE
             message = self._complete_message(totals, soya_g) if coverage_complete else self._coverage_message(coverage, totals)
+            estimated_names = sorted({p.food_name for p in portions
+                                      if records.get(p.food_key) is not None and records[p.food_key].estimate_range is not None})
+            stress = self._estimate_stress_failures(portions, soya_g, records) if coverage_complete else ()
+            if stress:
+                status = PlanStatus.INFEASIBLE
+                message = "Estimated-item range check failed: " + "; ".join(stress) + "."
+            elif estimated_names and status is PlanStatus.FEASIBLE:
+                message += (" Includes estimated-tier dishes (hostel-mess averages, ±25% range check passed): "
+                            + ", ".join(estimated_names) + ".")
             deviations, warnings = self._result_notes(
                 portions, totals, meal_calories, meal_protein, excluded, missing,
                 status=status, optimal=optimal, meal_coverage=coverage,
@@ -649,12 +665,16 @@ class DietOptimizer:
             model.add(above >= expression - maximum_units)
             meal_deviations.extend((below, above))
 
-        def macro_expr(field_name: str):
+        def macro_expr(field_name: str, sign: int = 0):
+            """Linear macro total. ``sign`` -1/+1 scales estimated items to their low/high case."""
             terms = []
             for key, var in serving_vars.items():
                 food = item_map[key].food
                 assert food.nutrition_per_100g is not None and food.serving is not None
-                per_portion = getattr(food.nutrition_per_100g, field_name) * food.serving.grams / Decimal("100")
+                factor = Decimal("1")
+                if sign and food.estimate_range is not None:
+                    factor = Decimal("1") + sign * food.estimate_range
+                per_portion = getattr(food.nutrition_per_100g, field_name) * food.serving.grams / Decimal("100") * factor
                 terms.append(self._units(per_portion) * var)
             fixed_value = getattr(self.plant_protein, field_name)
             fixed = self._units(fixed_value) if fixed_value is not None else 0
@@ -675,6 +695,15 @@ class DietOptimizer:
             model.add(kcal >= self._units(targets.minimum_calories_kcal))
         if require_protein:
             model.add(protein >= self._units(targets.minimum_protein_g))
+        # Robust planning: when estimated dishes are eligible, the plan must also
+        # meet the minimums with those dishes at their low case (-range) and stay
+        # within the calorie maximum at their high case (+range).
+        if any(item_map[key].food.estimate_range is not None for key in serving_vars):
+            if enforce_minimum_calories:
+                model.add(macro_expr("calories_kcal", -1) >= self._units(targets.minimum_calories_kcal))
+            if require_protein:
+                model.add(macro_expr("protein_g", -1) >= self._units(targets.minimum_protein_g))
+            model.add(macro_expr("calories_kcal", 1) <= max_kcal_units)
 
         meal_protein_terms: dict[str, list[object]] = {meal: [] for meal in self.meal_guidance}
         meal_protein_upper: dict[str, int] = {meal: 0 for meal in self.meal_guidance}
@@ -1087,6 +1116,42 @@ class DietOptimizer:
             warnings.append("CP-SAT returned a hard-constraint-valid incumbent before proving all soft objectives optimal.")
         return tuple(deviations), tuple(warnings)
 
+    def _estimate_stress_failures(self, portions: Sequence[SelectedPortion], soya_grams: Decimal,
+                                  records: Mapping[str, FoodRecord]) -> tuple[str, ...]:
+        """Re-check a chosen plan with every estimated item scaled by ±its range.
+
+        The low case must still meet the protein and calorie minimums; the high
+        case must still stay within the calorie maximum. Non-estimated items are
+        unchanged. A plan with no estimated items returns no failures.
+        """
+
+        used = {p.food_key for p in portions} & {k for k, r in records.items() if r.estimate_range is not None}
+        if not used:
+            return ()
+        failures: list[str] = []
+        for label, sign in (("low", -1), ("high", 1)):
+            scenario = dict(records)
+            for key in used:
+                record = records[key]
+                assert record.nutrition_per_100g is not None and record.estimate_range is not None
+                factor = Decimal("1") + sign * record.estimate_range
+                values = record.nutrition_per_100g
+                scenario[key] = replace(record, nutrition_per_100g=MacroNutrients(
+                    calories_kcal=values.calories_kcal * factor,
+                    protein_g=values.protein_g * factor,
+                    carbohydrates_g=values.carbohydrates_g * factor,
+                    fat_g=values.fat_g * factor,
+                ))
+            totals = self._recalculate(portions, soya_grams, scenario)
+            if label == "low":
+                if totals.protein_g < self.profile.targets.minimum_protein_g:
+                    failures.append(f"low-estimate protein {totals.protein_g:.2f} g is below {self.profile.targets.minimum_protein_g} g")
+                if totals.calories_kcal < self.profile.targets.minimum_calories_kcal:
+                    failures.append(f"low-estimate calories {totals.calories_kcal:.2f} kcal are below {self.profile.targets.minimum_calories_kcal} kcal")
+            elif totals.calories_kcal > self.profile.targets.maximum_calories_kcal:
+                failures.append(f"high-estimate calories {totals.calories_kcal:.2f} kcal exceed {self.profile.targets.maximum_calories_kcal} kcal")
+        return tuple(failures)
+
     def _recalculate_meal_calories(self, portions: Sequence[SelectedPortion], soya_grams: Decimal,
                                    records: Mapping[str, FoodRecord]) -> tuple[tuple[str, Decimal], ...]:
         totals = {meal: Decimal("0") for meal in self.meal_guidance}
@@ -1200,6 +1265,8 @@ def validate_optimization_result(result: OptimizationResult) -> tuple[str, ...]:
         return ("Optimization result has no validation context.",)
     if result.status is not PlanStatus.FEASIBLE:
         errors.append(f"Optimization status is {result.status.value}, not feasible.")
+        if result.message.startswith("Estimated-item range check failed"):
+            errors.append(result.message)
     coverage_by_meal = {coverage.meal: coverage for coverage in result.meal_coverage}
     selected_meals = {portion.meal for portion in result.portions}
     for meal in context.required_meals:
@@ -1334,6 +1401,8 @@ def summarize_validation_failure(
         lowered = error.casefold()
         if "status is" in lowered:
             labels.add("plan_status")
+        if "estimated-item range check failed" in lowered:
+            labels.add("estimate_range_check_failed")
         if "unavailable:" in lowered or "has no selected mess food" in lowered:
             labels.add("required_meal_coverage")
         if "eligible item in the supplied menu" in lowered:

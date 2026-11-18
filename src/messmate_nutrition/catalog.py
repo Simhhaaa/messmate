@@ -42,7 +42,8 @@ def _serving(label: str, typical: str, low: str, high: str, basis: str) -> Servi
 def _food(key: str, name: str, category: FoodCategory, macros: tuple[str, str, str, str] | None,
           serving: tuple[str, str, str, str, str] | None, confidence: str,
           aliases: tuple[str, ...] = (), recipe: str | None = None, components: tuple[str, ...] = (),
-          unknown_reason: str = "", source_override: SourceReference | None = None) -> FoodRecord:
+          unknown_reason: str = "", source_override: SourceReference | None = None,
+          estimate_range: str | None = None) -> FoodRecord:
     known = macros is not None
     return FoodRecord(
         key=key, display_name=name, category=category,
@@ -54,8 +55,19 @@ def _food(key: str, name: str, category: FoodCategory, macros: tuple[str, str, s
         recipe=RecipeAssumption(recipe, components) if recipe else None,
         review_required=not known,
         notes=unknown_reason,
+        estimate_range=Decimal(estimate_range) if estimate_range else None,
     )
 
+
+_ESTIMATE = SourceReference(
+    name="MESSMATE hostel-mess average estimate (ESTIMATED TIER)",
+    url="https://www.ICMR-NIN.res.in/",
+    note=(
+        "Computed from IFCT 2017 ingredient values (docs/ifct_2017_ingredient_references.csv) "
+        "using the stated raw-dal, vegetable and oil ratios. Ratios are assumed mess averages, "
+        "not weighed kitchen data; the record is protected by a ±25% range check."
+    ),
+)
 
 # All nutrient quantities are per 100 g edible finished food. Recipe profiles are
 # rounded estimates; portion weights are independent estimates, not scraped facts.
@@ -95,6 +107,45 @@ _RECORDS = [
           "0.52", ("french-fried potato",),
           recipe="Generic potato strips fried in vegetable oil; oil uptake and cut vary by preparation.",
           components=("potato", "vegetable oil"), source_override=_USDA_SR28_FRIES),
+    # ESTIMATED TIER: hostel-mess averages computed from IFCT 2017 ingredient values.
+    # Confidence sits at the 0.50 eligibility floor and every plan that includes
+    # one must pass the ±25% low/high range check. Ratios are assumptions to confirm.
+    _food("mix_yellow_dal", "Mix Yellow Dal", FoodCategory.COMPLETE_DISH,
+          ("108", "6.02", "13.14", "3.28"),
+          ("1 katori", "180", "130", "250", "Cooked dal; estimated serving weight"),
+          "0.50", ("mix yellow dal", "yellow dal"),
+          recipe="ESTIMATE: per 100 g cooked = 15 g green gram dal (IFCT B010) + 10 g lentil dal (IFCT B013) + 3 g oil, raw-dal basis; toor dal not in references.",
+          components=("green gram dal", "lentil dal", "oil"), source_override=_ESTIMATE, estimate_range="0.25"),
+    _food("menthi_dal_tadka", "Menthi Dal Tadka", FoodCategory.COMPLETE_DISH,
+          ("109", "6.04", "13.19", "3.35"),
+          ("1 katori", "180", "130", "250", "Cooked dal; estimated serving weight"),
+          "0.50", ("menthi dal", "methi dal tadka", "fenugreek dal"),
+          recipe="ESTIMATE: per 100 g cooked = 25 g green gram dal (IFCT B010) + 2 g fresh fenugreek leaves (IFCT C020) + 3 g oil.",
+          components=("green gram dal", "fenugreek leaves", "oil"), source_override=_ESTIMATE, estimate_range="0.25"),
+    _food("palakura_pappu", "Palakura Pappu", FoodCategory.COMPLETE_DISH,
+          ("94", "4.99", "10.72", "3.33"),
+          ("1 katori", "180", "130", "250", "Cooked dal; estimated serving weight"),
+          "0.50", ("palakura pappu", "spinach dal", "pesarapappu"),
+          recipe="ESTIMATE: per 100 g cooked = 20 g green gram dal (IFCT B010) + 10 g spinach (IFCT C033) + 3 g oil.",
+          components=("green gram dal", "spinach", "oil"), source_override=_ESTIMATE, estimate_range="0.25"),
+    _food("panchratna_dal", "Panchratna Dal", FoodCategory.COMPLETE_DISH,
+          ("108", "5.80", "12.68", "3.57"),
+          ("1 katori", "180", "130", "250", "Cooked dal; estimated serving weight"),
+          "0.50", ("panchratan dal", "five dal"),
+          recipe="ESTIMATE: per 100 g cooked = 6.25 g each of bengal gram, black gram, green gram and lentil dal (IFCT B001/B003/B010/B013) + 3 g oil; toor not in references.",
+          components=("bengal gram dal", "black gram dal", "green gram dal", "lentil dal", "oil"), source_override=_ESTIMATE, estimate_range="0.25"),
+    _food("pappu_charu", "Pappu Charu", FoodCategory.COMPLETE_DISH,
+          ("50", "2.39", "5.26", "2.13"),
+          ("1 bowl", "180", "120", "250", "Thin dal broth; estimated serving weight"),
+          "0.50", ("pappu charu", "dal rasam"),
+          recipe="ESTIMATE: per 100 g cooked = 10 g green gram dal (IFCT B010) + 2 g oil, thinned broth with tamarind/tomato not counted.",
+          components=("green gram dal", "oil", "tamarind/tomato broth"), source_override=_ESTIMATE, estimate_range="0.25"),
+    _food("dhaba_dal", "Dhaba Dal", FoodCategory.COMPLETE_DISH,
+          ("116", "5.93", "12.94", "4.30"),
+          ("1 katori", "180", "130", "250", "Cooked dal; estimated serving weight"),
+          "0.50", ("dhaba dal", "dhaba style dal"),
+          recipe="ESTIMATE: per 100 g cooked = 12.5 g lentil dal (IFCT B013) + 12.5 g black gram dal (IFCT B003) + 4 g oil.",
+          components=("lentil dal", "black gram dal", "oil"), source_override=_ESTIMATE, estimate_range="0.25"),
 ]
 
 CATALOG: dict[str, FoodRecord] = {record.key: record for record in _RECORDS}

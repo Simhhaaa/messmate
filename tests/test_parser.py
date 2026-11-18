@@ -96,6 +96,18 @@ Made with love"""
         section = extract_meal_items(body, "Dinner")
         self.assertEqual(section.items, ("Chole Masala", "Chapati"))
 
+    def test_now_serving_header_and_promo_banners_are_not_menu_items(self) -> None:
+        body = """Dinner
+07:30 - 09:30 PM
+NOW SERVING ★ Panchratna Dal ★ Gobi Capsicum Aloo Masaledar ★ Pappu Charu · Cucumber Salad · Rice · Chapati 🎮 Gemini Game on Night Register Now 💬 Join WhatsApp Channel Join Now
+Give Feedback
+Made with love"""
+        section = extract_meal_items(body, "Dinner")
+        self.assertEqual(
+            section.items,
+            ("Panchratna Dal", "Gobi Capsicum Aloo Masaledar", "Pappu Charu", "Cucumber Salad", "Rice", "Chapati"),
+        )
+
     def test_missing_or_empty_section_fails_closed(self) -> None:
         with self.assertRaises(PortalStructureError):
             extract_meal_items("TODAY THU, 05 NOV\nLunch\nitems", "Breakfast")

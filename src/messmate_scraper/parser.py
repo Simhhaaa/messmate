@@ -37,6 +37,21 @@ _CAMPUS_NOTICE_RE = re.compile(
 )
 
 
+# Portal header labels that appear inside a meal section but are not dishes.
+_PORTAL_HEADER_ITEMS = frozenset({"now serving"})
+# Promotional banners are appended after a dish name, starting at the first
+# emoji marker (for example the game or WhatsApp-channel call to action).
+_PROMO_SUFFIX_RE = re.compile(r"\s*[\U0001F300-\U0001FAFF].*$")
+
+
+def _strip_portal_decoration(item: str) -> str:
+    """Remove campus notices and promo banners while keeping the dish name."""
+
+    item = _CAMPUS_NOTICE_RE.split(item, maxsplit=1)[0]
+    item = _PROMO_SUFFIX_RE.sub("", item, count=1)
+    return item.strip(" \t\n-•·★")
+
+
 def _normalise_text(value: str) -> str:
     value = unicodedata.normalize("NFKC", value)
     return value.replace("\u00a0", " ").replace("\r", "\n")
@@ -134,7 +149,8 @@ def extract_meal_items(body_text: str, meal: MealName) -> MealSection:
     items = tuple(
         cleaned.strip(" \t\n-•·★")
         for item in candidates
-        if (cleaned := _CAMPUS_NOTICE_RE.split(item, maxsplit=1)[0].strip(" \t\n-•·★"))
+        if (cleaned := _strip_portal_decoration(item))
+        and cleaned.casefold() not in _PORTAL_HEADER_ITEMS
     )
     if not items:
         raise MenuNotPublishedError(f"No parseable menu items found for {meal}")

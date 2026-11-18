@@ -1,0 +1,52 @@
+{
+  "fixture_notice": "Sanitized menu-only fixture from the 18 November 2026 live scrape after header and promo-banner removal; no raw HTML, profile, or delivery data.",
+  "requested_date": "2026-11-18",
+  "portal_today": "2026-11-18",
+  "fetched_at": "2026-11-18T20:05:14.780070+05:30",
+  "meals": {
+    "Breakfast": {
+      "items": [
+        "Banana",
+        "Dalia",
+        "Cornflakes",
+        "Pav",
+        "Bhaji",
+        "Hot Milk (D)",
+        "Cold Milk (D)",
+        "Tea (D)",
+        "Coffee Powder",
+        "Bread/Butter/Jam"
+      ]
+    },
+    "Lunch": {
+      "items": [
+        "Cucumber-Carrot Raita",
+        "Pickle Onion",
+        "Dhaba Dal",
+        "Baingan Aloo Ka Salan",
+        "Veg Tahiri",
+        "Sewai Kheer",
+        "Lasoon Ki Theekhi Chutney",
+        "Chapati"
+      ]
+    },
+    "Snacks": {
+      "items": [
+        "Bread Pakora",
+        "Sonth Ki Chutney",
+        "Cold Coffee",
+        "Tea (D)"
+      ]
+    },
+    "Dinner": {
+      "items": [
+        "Panchratna Dal",
+        "Gobi Capsicum Aloo Masaledar",
+        "Pappu Charu",
+        "Cucumber Salad",
+        "Rice",
+        "Chapati"
+      ]
+    }
+  }
+}

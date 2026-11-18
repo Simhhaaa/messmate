@@ -91,10 +91,18 @@ class FoodRecord:
     recipe: RecipeAssumption | None = None
     review_required: bool = False
     notes: str = ""
+    # Estimated tier: fractional uncertainty (0.25 = ±25%) applied to every macro.
+    # Plans with estimated items must also pass low/high range checks.
+    estimate_range: Decimal | None = None
 
     def __post_init__(self) -> None:
         if not Decimal("0") <= self.confidence <= Decimal("1"):
             raise ValueError("confidence must be between 0 and 1")
+        if self.estimate_range is not None:
+            if self.nutrition_per_100g is None:
+                raise ValueError("estimated records must carry nutrition values")
+            if not Decimal("0") < self.estimate_range <= Decimal("0.5"):
+                raise ValueError("estimate_range must be greater than 0 and at most 0.5")
         if self.nutrition_per_100g is None and not self.review_required:
             raise ValueError("unknown nutrition must be marked for review")
         if self.nutrition_per_100g is not None and self.source is None:
