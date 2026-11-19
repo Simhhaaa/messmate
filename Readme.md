@@ -98,8 +98,10 @@ Nov 6 plan meets the protein target.
 
 ## Phase 5: GitHub Actions automation
 
-`.github/workflows/daily-messmate.yml` runs at `18:30 UTC` (`00:00` IST on the
-next date) and supports manual dispatch. Manual runs default to dry-run and
+`.github/workflows/daily-messmate.yml` runs at `00:30 UTC` (`06:00` IST on the
+same date, after the mess menu is published) and supports manual dispatch.
+GitHub may start scheduled runs a few minutes late, and the scrape retries with
+backoff, so a live message normally arrives shortly after 06:00 IST. Manual runs default to dry-run and
 accept an optional target date. A scheduled run also stays in dry-run unless
 the GitHub Actions Secret `MESSMATE_LIVE_SEND` is exactly `true`. A manual live
 run additionally requires setting its `dry_run` input to false. The Python
@@ -169,6 +171,19 @@ the bot token by API design, so the adapter never logs request URLs, request or
 response bodies, chat IDs, tokens, or raw provider exceptions. Definite HTTP
 429 rejections may be retried using Telegram's `retry_after`; transport or
 server failures are marked `uncertain` and are never automatically resent.
+
+### Controlled Telegram test
+
+A manual run with the `telegram_test` input selected sends one labelled test
+message instead of the daily run. The message is built from the saved 6 Nov
+2026 menu, which produces a validated plan, so it checks the real bot token,
+chat ID, formatting and length limit without depending on today's menu. It
+never runs on a schedule, skips the daily scrape and writes nothing to Neon.
+Run it from Actions → MESSMATE daily diet plan → Run workflow with
+`telegram_test` ticked.
+
+On days when the menu does not produce a validated plan, the scheduled run
+sends nothing and the workflow run is marked failed with a safe report.
 
 WhatsApp remains selectable by setting `MESSMATE_CHANNEL=whatsapp` for the
 scheduled workflow or choosing WhatsApp in manual dispatch. It continues to

@@ -62,7 +62,8 @@ class WorkflowConfigurationTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
     def test_ist_schedule_and_manual_dispatch_are_configured(self):
-        self.assertRegex(self.text, r'cron:\s*["\']30 18 \* \* \*["\']')
+        # 00:30 UTC is 06:00 IST on the same date.
+        self.assertRegex(self.text, r'cron:\s*["\']30 0 \* \* \*["\']')
         self.assertRegex(self.text, r"(?m)^  workflow_dispatch:")
         self.assertRegex(self.text, r"(?m)^        default: true$")
         self.assertIn("inputs:", self.text)
@@ -79,8 +80,9 @@ class WorkflowConfigurationTests(unittest.TestCase):
         self.assertRegex(self.text, r"(?m)^permissions:\n  contents: read$")
 
     def test_telegram_secrets_are_scoped_to_telegram_and_live_send(self):
-        token_line = re.search(r"(?m)^\s+TELEGRAM_BOT_TOKEN: (.+)$", self.text)
-        chat_line = re.search(r"(?m)^\s+TELEGRAM_CHAT_ID: (.+)$", self.text)
+        daily_step = self.text.split("- name: Scrape, optimize, and prepare daily delivery", 1)[1]
+        token_line = re.search(r"(?m)^\s+TELEGRAM_BOT_TOKEN: (.+)$", daily_step)
+        chat_line = re.search(r"(?m)^\s+TELEGRAM_CHAT_ID: (.+)$", daily_step)
         self.assertIsNotNone(token_line)
         self.assertIsNotNone(chat_line)
         token_expression = token_line.group(1)
@@ -100,6 +102,24 @@ class WorkflowConfigurationTests(unittest.TestCase):
         self.assertIn('elif [[ "$DISPATCH_DRY_RUN" == "false" ]]', safety_step)
         self.assertIn('if [[ "$SCHEDULE_LIVE_SEND" != "true" ]]', safety_step)
         self.assertIn('echo "live_send=$live_send" >> "$GITHUB_OUTPUT"', safety_step)
+
+    def test_every_telegram_token_reference_is_gated(self):
+        manual_test = "github.event_name == 'workflow_dispatch' && inputs.telegram_test"
+        live_daily = "steps.resolve-mode.outputs.live_send == 'true'"
+        for expression in re.findall(r"(?m)^\s+TELEGRAM_BOT_TOKEN: (.+)$", self.text):
+            self.assertIn("secrets.TELEGRAM_BOT_TOKEN", expression)
+            self.assertIn("|| ''", expression)
+            self.assertTrue(manual_test in expression or live_daily in expression, expression)
+
+    def test_controlled_telegram_test_is_manual_only_and_skips_daily_run(self):
+        self.assertRegex(self.text, r"(?s)telegram_test:.*?type: boolean.*?default: false")
+        test_step = self.text.split("- name: Send controlled Telegram test", 1)[1].split("- name:", 1)[0]
+        self.assertIn("if: ${{ github.event_name == 'workflow_dispatch' && inputs.telegram_test }}", test_step)
+        self.assertIn("MESSMATE_TELEGRAM_TEST: confirm", test_step)
+        self.assertIn("python -m messmate_app.telegram_test", test_step)
+        self.assertNotIn("NEON_DATABASE_URL", test_step)
+        daily_step = self.text.split("- name: Scrape, optimize, and prepare daily delivery", 1)[1].split("- name:", 1)[0]
+        self.assertIn("if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.telegram_test) }}", daily_step)
 
     def test_duplicate_execution_and_artifact_scope_are_safe(self):
         self.assertIn("concurrency:", self.text)

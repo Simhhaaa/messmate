@@ -1,9 +1,10 @@
 name: MESSMATE daily diet plan
 
 on:
-  # 18:30 UTC is 00:00 on the next calendar day in Asia/Kolkata.
+  # 00:30 UTC is 06:00 the same calendar day in Asia/Kolkata. The mess menu is
+  # published by then. GitHub may start scheduled runs a few minutes late.
   schedule:
-    - cron: "30 18 * * *"
+    - cron: "30 0 * * *"
   workflow_dispatch:
     inputs:
       target_date:
@@ -23,6 +24,11 @@ on:
           - telegram
           - whatsapp
         default: telegram
+      telegram_test:
+        description: Send one labelled Telegram test message (sample plan from the saved 6 Nov menu) instead of the daily run
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -113,7 +119,21 @@ jobs:
           echo "MESSMATE_CHANNEL=$channel" >> "$GITHUB_ENV"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
+      # Manual-only controlled test. A schedule can never select it, it skips the
+      # daily scrape, and it writes nothing to the delivery database.
+      - name: Send controlled Telegram test
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.telegram_test }}
+        env:
+          MESSMATE_TELEGRAM_TEST: confirm
+          TELEGRAM_BOT_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.telegram_test && secrets.TELEGRAM_BOT_TOKEN || '' }}
+          TELEGRAM_CHAT_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.telegram_test && secrets.TELEGRAM_CHAT_ID || '' }}
+          MESSMATE_USER_HEIGHT_CM: ${{ secrets.MESSMATE_USER_HEIGHT_CM }}
+          MESSMATE_USER_WEIGHT_KG: ${{ secrets.MESSMATE_USER_WEIGHT_KG }}
+          MESSMATE_USER_GOAL: ${{ secrets.MESSMATE_USER_GOAL }}
+        run: python -m messmate_app.telegram_test
+
       - name: Scrape, optimize, and prepare daily delivery
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.telegram_test) }}
         env:
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
           WHATSAPP_RECIPIENT: ${{ secrets.WHATSAPP_RECIPIENT }}
