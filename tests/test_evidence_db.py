@@ -22,6 +22,7 @@ class EvidenceDatabaseTests(unittest.TestCase):
             MenuFixture(date(2026, 11, 6), json.loads((FIXTURE_DIR / "nov6_menu_fixture.json").read_text(encoding="utf-8"))),
             MenuFixture(date(2026, 11, 7), json.loads((FIXTURE_DIR / "nov7_menu_fixture.json").read_text(encoding="utf-8"))),
             MenuFixture(date(2026, 11, 18), json.loads((FIXTURE_DIR / "nov18_menu_fixture.json").read_text(encoding="utf-8"))),
+            MenuFixture(date(2026, 11, 19), json.loads((FIXTURE_DIR / "nov19_menu_fixture.json").read_text(encoding="utf-8"))),
         ]
         build_database(cls.path, fixtures)
         cls.connection = sqlite3.connect(cls.path)
@@ -74,6 +75,17 @@ class EvidenceDatabaseTests(unittest.TestCase):
         nov18 = runs["2026-11-18"]
         self.assertEqual(nov18[1], "infeasible")
         self.assertLess(nov18[3], 120)
+
+    def test_nov19_menu_is_recorded_with_gap_dishes(self) -> None:
+        status, shortfall = self.connection.execute(
+            "SELECT optimizer_status, protein_shortfall_g FROM menu_run_diagnostic WHERE menu_date = '2026-11-19'"
+        ).fetchone()
+        self.assertEqual(status, "protein_shortfall")
+        self.assertGreater(shortfall, 0)
+        gaps = self.connection.execute(
+            "SELECT COUNT(*) FROM dish_evidence WHERE priority = 'gap (19 Nov menu)' AND nutrition_status = 'unverified'"
+        ).fetchone()[0]
+        self.assertEqual(gaps, 12)
 
     def test_ineligible_occurrences_always_carry_a_reason(self) -> None:
         missing_reason = self.connection.execute(

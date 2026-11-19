@@ -1,0 +1,52 @@
+{
+  "fixture_notice": "Sanitized menu-only fixture from the 19 November 2026 live scrape after header and promo-banner removal; no raw HTML, profile, or delivery data.",
+  "requested_date": "2026-11-19",
+  "portal_today": "2026-11-19",
+  "fetched_at": "2026-11-19T10:07:57.625775+05:30",
+  "meals": {
+    "Breakfast": {
+      "items": [
+        "Watermelon",
+        "Masala Oats",
+        "Chocos",
+        "Sada Paratha",
+        "Cholar Dal with Coconut",
+        "Hot Milk (D)",
+        "Cold Milk (D)",
+        "Tea (D)",
+        "Coffee Powder",
+        "Bread/Butter/Jam"
+      ]
+    },
+    "Lunch": {
+      "items": [
+        "Sindhi Kadhi",
+        "Dum Aloo",
+        "Onion Pacchadi",
+        "Curd",
+        "Green Salad",
+        "Rice",
+        "Chapati"
+      ]
+    },
+    "Snacks": {
+      "items": [
+        "French Fries",
+        "Ketchup",
+        "Hot Milk (D)",
+        "Tea (D)",
+        "Coffee Powder"
+      ]
+    },
+    "Dinner": {
+      "items": [
+        "Palak Paneer",
+        "Moong Dal Hing Tarka",
+        "Pastry",
+        "Chana Sprout with Tofu Salad",
+        "Plain Rice",
+        "Chapati"
+      ]
+    }
+  }
+}

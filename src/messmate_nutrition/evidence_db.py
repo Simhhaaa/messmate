@@ -137,6 +137,25 @@ PRIORITY_DISHES: tuple[dict[str, str], ...] = (
     },
 )
 
+# Dishes from the 19 Nov 2026 menu with no catalog match and no evidence yet.
+# They are recorded as data gaps only; no macros are estimated for them.
+_GAP_MISSING = "ingredients and raw weights, oil/fat grams, batch yield, served weight, recipe variation"
+GAP_DISHES: tuple[dict[str, str], ...] = tuple(
+    {
+        "dish_name": name,
+        "menu_dates": "2026-11-19",
+        "priority": "gap (19 Nov menu)",
+        "decision": "Data gap. No catalog match; not estimated. Excluded until kitchen or verified evidence exists.",
+        "missing_kitchen_fields": _GAP_MISSING,
+        "sources_checked": "MENU ONLY (not yet researched)",
+    }
+    for name in (
+        "Watermelon", "Chocos", "Cholar Dal with Coconut", "Sindhi Kadhi", "Dum Aloo",
+        "Onion Pacchadi", "Rice", "Palak Paneer", "Moong Dal Hing Tarka", "Pastry",
+        "Chana Sprout with Tofu Salad", "Plain Rice",
+    )
+)
+
 SOURCE_CHECKS: tuple[dict[str, object], ...] = (
     {
         "query": "Menthi dal tadka fenugreek nutrition",
@@ -299,7 +318,7 @@ def build_database(
             connection.executemany(
                 "INSERT INTO dish_evidence VALUES (:dish_name, :menu_dates, :priority, :catalog_key, :nutrition_status,"
                 " :decision, :missing_kitchen_fields, :sources_checked)",
-                [_dish_row(dish) for dish in PRIORITY_DISHES],
+                [_dish_row(dish) for dish in (*PRIORITY_DISHES, *GAP_DISHES)],
             )
             connection.executemany(
                 "INSERT INTO source_check (query, source_title, source_url, what_it_gave, usable, reason)"
@@ -328,6 +347,7 @@ MENU_FIXTURES = (
     MenuFixture(date(2026, 11, 6), "nov6_menu_fixture.json"),
     MenuFixture(date(2026, 11, 7), "nov7_menu_fixture.json"),
     MenuFixture(date(2026, 11, 18), "nov18_menu_fixture.json"),
+    MenuFixture(date(2026, 11, 19), "nov19_menu_fixture.json"),
 )
 
 
